@@ -19,17 +19,12 @@ const Name = struct {
     val: []const u8,
 };
 
-const ObjList = struct {
-    data: *Node(Object),
-    node: std.SinglyLinkedList.Node = .{},
-};
-
 // (Name or Agent) or Agent(...)
 // Think whether all agents should be in form Z(...)
 // or to allow Z without ()
 const Object = struct {
     name: []const u8,
-    objlist: ?std.SinglyLinkedList,
+    portlist: ?[]*Node(Object),
 };
 
 const ActivePair = struct {
@@ -37,13 +32,8 @@ const ActivePair = struct {
     rhs: *Node(Object),
 };
 
-const NameList = struct {
-    name: Name,
-    node: std.SinglyLinkedList.Node = .{},
-};
-
 const Statement = union(enum) {
-    free_stmt: std.SinglyLinkedList,
+    free_stmt: []const Name,
     active_pair: ActivePair,
     rule,
     const_stmt,
@@ -116,19 +106,16 @@ const Parser = struct {
         return self.tokens[self.index - 1];
     }
 
-    fn parseObjList(self: *Parser) error{ OutOfMemory, ErrorDuringParsing }!std.SinglyLinkedList {
-        var list: std.SinglyLinkedList = .{};
+    fn parseObjList(self: *Parser) error{ OutOfMemory, ErrorDuringParsing }![]*Node(Object) {
+        var list = std.ArrayList(*Node(Object)).empty;
         const objt = self.peek();
         objtoken: switch (objt.tag) {
             .rparen => {
-                std.SinglyLinkedList.Node.reverse(&list.first);
-                return list;
+                return list.items;
             },
             .identifier => {
                 const obj = try self.parseObject();
-                const new_objlist = try self.allocator.create(ObjList);
-                new_objlist.* = .{ .data = obj };
-                list.prepend(&new_objlist.node);
+                try list.append(self.allocator, obj);
                 if (self.peek().tag == .comma) {
                     _ = self.advance();
                     continue :objtoken self.peek().tag;
@@ -142,8 +129,7 @@ const Parser = struct {
                 return Error.ErrorDuringParsing;
             },
         }
-        std.SinglyLinkedList.Node.reverse(&list.first);
-        return list;
+        return list.items;
     }
 
     fn parseObject(self: *Parser) !*Node(Object) {
@@ -160,12 +146,12 @@ const Parser = struct {
             .lparen => {
                 _ = self.advance();
                 const lst = try self.parseObjList();
-                ret.val.objlist = lst;
+                ret.val.portlist = lst;
                 const closing = self.advance();
                 try self.expectTag(.rparen, closing.tag);
             },
             else => {
-                ret.val.objlist = null;
+                ret.val.portlist = null;
             },
         }
         return ret;
@@ -229,26 +215,19 @@ const Parser = struct {
         return ret;
     }
 
-    fn parseNameList(self: *Parser) !std.SinglyLinkedList {
+    fn parseNameList(self: *Parser) ![]Name {
         const tentry = self.advance();
 
         if (tentry.tag != .identifier) {
             self.unexpected_token(.identifier, tentry.tag);
         }
-        const namelist = try self.allocator.create(NameList);
-        namelist.* = .{ .name = .{ .val = tentry.content.? } };
-        var list: std.SinglyLinkedList = .{};
-        list.prepend(&namelist.node);
+        var list = std.ArrayList(Name).empty;
+        try list.append(self.allocator, .{ .val = tentry.content.? });
         while (self.peek().tag == .identifier) {
             const t = self.advance();
-            const new_namelist = try self.allocator.create(NameList);
-            new_namelist.* = .{ .name = .{ .val = t.content.? } };
-            // we don't care about the placement
-            list.prepend(&new_namelist.node);
+            try list.append(self.allocator, .{ .val = t.content.? });
         }
-
-        std.SinglyLinkedList.Node.reverse(&list.first);
-        return list;
+        return list.items;
     }
 };
 
@@ -271,7 +250,8 @@ test "active pair stmt" {
         .active_pair => |ap| {
             try std.testing.expectEqualStrings("A", ap.lhs.val.name);
             try std.testing.expectEqualStrings("Z", ap.rhs.val.name);
-            try std.testing.expectEqualStrings("b", @as(*ObjList, @fieldParentPtr("node", ap.lhs.val.objlist.?.first.?)).data.val.name);
+            try std.testing.expectEqualStrings("b", ap.lhs.val.portlist.?[0].val.name);
+            try std.testing.expectEqualStrings("c", ap.lhs.val.portlist.?[1].val.name);
         },
         else => unreachable,
     }
@@ -281,7 +261,7 @@ test "free stmt" {
     var dalloc = std.heap.DebugAllocator(.{}).init;
     defer dalloc.deinitWithoutLeakChecks();
     const alloc = dalloc.allocator();
-    const program = "free a b c;";
+    const program = "free a b longname'''';";
     const tokens = try Lexer.tokenize(alloc, program);
 
     var parser = Parser.init(tokens, alloc);
@@ -293,7 +273,9 @@ test "free stmt" {
     }
     switch ((try stmt).?.val) {
         .free_stmt => |list| {
-            try std.testing.expectEqualStrings("a", @as(*NameList, @fieldParentPtr("node", list.first.?)).name.val);
+            try std.testing.expectEqualStrings("a", list[0].val);
+            try std.testing.expectEqualStrings("b", list[1].val);
+            try std.testing.expectEqualStrings("longname''''", list[2].val);
         },
         else => unreachable,
     }
