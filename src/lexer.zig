@@ -30,7 +30,7 @@ pub const Token = struct {
         geq,
         eq,
         assign,
-        ap,
+        rule_symbol,
         tilde,
         comma,
         semicolon,
@@ -61,7 +61,7 @@ pub const Token = struct {
                 .geq => ">=",
                 .eq => "==",
                 .assign => "=",
-                .ap => "><",
+                .rule_symbol => "><",
                 .tilde => "~",
                 .comma => ",",
                 .semicolon => ";",
@@ -256,7 +256,7 @@ pub const Tokenizer = struct {
                 },
                 '<' => {
                     self.advance();
-                    result.tag = .ap;
+                    result.tag = .rule_symbol;
                 },
                 else => result.tag = .greater,
             },
@@ -335,7 +335,7 @@ test "single active pair program" {
         \\ Add(r, x) >< S(y) =>
         \\  r ~ S(w),
         \\  Add(w, x) ~ y;
-    , &.{ .identifier, .lparen, .identifier, .comma, .identifier, .rparen, .ap, .identifier, .lparen, .identifier, .rparen, .fatrightarrow, .identifier, .tilde, .identifier, .lparen, .identifier, .rparen, .comma, .identifier, .lparen, .identifier, .comma, .identifier, .rparen, .tilde, .identifier, .semicolon });
+    , &.{ .identifier, .lparen, .identifier, .comma, .identifier, .rparen, .rule_symbol, .identifier, .lparen, .identifier, .rparen, .fatrightarrow, .identifier, .tilde, .identifier, .lparen, .identifier, .rparen, .comma, .identifier, .lparen, .identifier, .comma, .identifier, .rparen, .tilde, .identifier, .semicolon });
 }
 
 test "identifier contents" {
@@ -356,7 +356,7 @@ test "keywords" {
 }
 
 test "different assignments" {
-    try testTokenize("= == <= >= => ><", &.{ .assign, .eq, .leq, .geq, .fatrightarrow, .ap });
+    try testTokenize("= == <= >= => ><", &.{ .assign, .eq, .leq, .geq, .fatrightarrow, .rule_symbol });
 }
 
 test "empty" {

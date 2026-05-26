@@ -20,7 +20,7 @@ const Name = struct {
 };
 
 const ObjList = struct {
-    obj: Node(Object),
+    data: *Node(Object),
     node: std.SinglyLinkedList.Node = .{},
 };
 
@@ -32,7 +32,10 @@ const Object = struct {
     objlist: ?std.SinglyLinkedList,
 };
 
-const ActivePair = struct { lhs: Object };
+const ActivePair = struct {
+    lhs: *Node(Object),
+    rhs: *Node(Object),
+};
 
 const NameList = struct {
     name: Name,
@@ -41,7 +44,9 @@ const NameList = struct {
 
 const Statement = union(enum) {
     free_stmt: std.SinglyLinkedList,
-    active_pair,
+    active_pair: ActivePair,
+    rule,
+    const_stmt,
 };
 
 const ParserError = struct {
@@ -50,17 +55,19 @@ const ParserError = struct {
 
     const Tag = union(enum) {
         UnexpectedEof: void,
+        ExpectedObject: struct { found: Token.Tag },
         ExpectedStatement: struct { found: Token.Tag },
         UnexpectedToken: struct { expected: Token.Tag, actual: Token.Tag },
     };
-    pub fn message(self: *ParserError, alloc: std.mem.Allocator) ![]const u8 {
+    pub fn message(self: *const ParserError, alloc: std.mem.Allocator) ![]const u8 {
         return switch (self.tag) {
             .UnexpectedEof => "Unexpected end of file",
+            .ExpectedObject => |val| try std.fmt.allocPrint(alloc, "Expected object, found token: {s}", .{val.found.symbol()}),
             .ExpectedStatement => |val| (try std.fmt.allocPrint(alloc, "Expected statement, found token: {s}", .{val.found.symbol()})),
             .UnexpectedToken => |val| try std.fmt.allocPrint(alloc, "Expected {s}, found {s}", .{ val.expected.symbol(), val.actual.symbol() }),
         };
     }
-    pub fn messageLine(self: *ParserError, alloc: std.mem.Allocator, parser_data: *const Parser) ![]const u8 {
+    pub fn messageLine(self: *const ParserError, alloc: std.mem.Allocator, parser_data: *const Parser) ![]const u8 {
         const loc = parser_data.tokens[self.pos].loc.start;
         return std.fmt.allocPrint(alloc, "{}:{} {s}", .{ loc.line, loc.ch, try self.message(alloc) });
     }
@@ -109,29 +116,106 @@ const Parser = struct {
         return self.tokens[self.index - 1];
     }
 
+    fn parseObjList(self: *Parser) error{ OutOfMemory, ErrorDuringParsing }!std.SinglyLinkedList {
+        var list: std.SinglyLinkedList = .{};
+        const objt = self.peek();
+        objtoken: switch (objt.tag) {
+            .rparen => {
+                std.SinglyLinkedList.Node.reverse(&list.first);
+                return list;
+            },
+            .identifier => {
+                const obj = try self.parseObject();
+                const new_objlist = try self.allocator.create(ObjList);
+                new_objlist.* = .{ .data = obj };
+                list.prepend(&new_objlist.node);
+                if (self.peek().tag == .comma) {
+                    _ = self.advance();
+                    continue :objtoken self.peek().tag;
+                }
+            },
+            else => {
+                self.err = .{
+                    .pos = self.index,
+                    .tag = .{ .ExpectedObject = .{ .found = self.peek().tag } },
+                };
+                return Error.ErrorDuringParsing;
+            },
+        }
+        std.SinglyLinkedList.Node.reverse(&list.first);
+        return list;
+    }
+
     fn parseObject(self: *Parser) !*Node(Object) {
-        _ = self;
-        return Error.ErrorDuringParsing;
+        // TODO: tuples have no name: (a,b,c) is an object
+        const tentry = self.advance();
+        var ret = try self.allocator.create(Node(Object));
+        errdefer self.allocator.destroy(ret);
+        ret.* = .{ .val = undefined, .tslice = .{ .start = @intCast(self.index - 1), .end = undefined } };
+        defer ret.tslice.end = @intCast(self.index - 1);
+        try self.expectTag(.identifier, tentry.tag);
+        ret.val.name = tentry.content.?;
+
+        switch (self.peek().tag) {
+            .lparen => {
+                _ = self.advance();
+                const lst = try self.parseObjList();
+                ret.val.objlist = lst;
+                const closing = self.advance();
+                try self.expectTag(.rparen, closing.tag);
+            },
+            else => {
+                ret.val.objlist = null;
+            },
+        }
+        return ret;
+    }
+
+    fn expectTag(self: *Parser, expected: Token.Tag, actual: Token.Tag) Error!void {
+        if (expected != actual) {
+            self.unexpected_token(expected, actual);
+            return Error.ErrorDuringParsing;
+        }
     }
 
     pub fn parseStmt(self: *Parser) !?*Node(Statement) {
-        const tentry = self.advance();
+        const tentry = self.peek();
         var ret = try self.allocator.create(Node(Statement));
-        ret.* = .{ .val = undefined, .tslice = .{ .start = @intCast(self.index - 1), .end = undefined } };
+        ret.* = .{ .val = undefined, .tslice = .{ .start = @intCast(self.index), .end = undefined } };
         switch (tentry.tag) {
             .eof, .semicolon => {
+                _ = self.advance();
                 self.allocator.destroy(ret);
                 return null;
             },
             .keyword_free => {
+                _ = self.advance();
                 const names = try self.parseNameList();
                 ret.val = .{ .free_stmt = names };
+            },
+            .identifier => {
+                const lhs = try self.parseObject();
+                const connection = self.advance();
+                switch (connection.tag) {
+                    .rule_symbol => {
+                        unreachable;
+                    },
+                    .tilde => {
+                        const rhs = try self.parseObject();
+                        ret.val = .{ .active_pair = .{ .lhs = lhs, .rhs = rhs } };
+                    },
+                    else => {
+                        self.err = .{ .pos = self.index - 1, .tag = .{ .ExpectedStatement = .{ .found = connection.tag } } };
+                        return Error.ErrorDuringParsing;
+                    },
+                }
             },
             else => {
                 self.err = .{
                     .pos = self.index - 1,
                     .tag = .{ .ExpectedStatement = .{ .found = tentry.tag } },
                 };
+                return Error.ErrorDuringParsing;
             },
         }
         if (self.advance().tag != .semicolon) {
@@ -168,6 +252,31 @@ const Parser = struct {
     }
 };
 
+test "active pair stmt" {
+    var dalloc = std.heap.DebugAllocator(.{}).init;
+    defer dalloc.deinitWithoutLeakChecks();
+    const alloc = dalloc.allocator();
+    const program = "A(b,c) ~ Z;";
+    const tokens = try Lexer.tokenize(alloc, program);
+
+    var parser = Parser.init(tokens, alloc);
+    defer parser.deinit();
+
+    const stmt = parser.parseStmt();
+    if (parser.err) |err| {
+        std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
+    }
+
+    switch ((try stmt).?.val) {
+        .active_pair => |ap| {
+            try std.testing.expectEqualStrings("A", ap.lhs.val.name);
+            try std.testing.expectEqualStrings("Z", ap.rhs.val.name);
+            try std.testing.expectEqualStrings("b", @as(*ObjList, @fieldParentPtr("node", ap.lhs.val.objlist.?.first.?)).data.val.name);
+        },
+        else => unreachable,
+    }
+}
+
 test "free stmt" {
     var dalloc = std.heap.DebugAllocator(.{}).init;
     defer dalloc.deinitWithoutLeakChecks();
@@ -179,9 +288,12 @@ test "free stmt" {
     defer parser.deinit();
 
     const stmt = parser.parseStmt();
+    if (parser.err) |err| {
+        std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
+    }
     switch ((try stmt).?.val) {
         .free_stmt => |list| {
-            try std.testing.expectEqualStrings(@as(*NameList, @fieldParentPtr("node", list.first.?)).name.val, "a");
+            try std.testing.expectEqualStrings("a", @as(*NameList, @fieldParentPtr("node", list.first.?)).name.val);
         },
         else => unreachable,
     }
