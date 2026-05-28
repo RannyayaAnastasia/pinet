@@ -86,9 +86,9 @@ threaded: *std.Io.Threaded,
 arena: *std.heap.ArenaAllocator,
 allocator: std.mem.Allocator,
 // Potentially for threaded
-equation_queue: std.Io.Queue(Equation) = undefined,
+equation_queue: std.Io.Queue(Equation),
 // for singlethreaded prototype
-equation_deque: std.Deque(Equation) = undefined,
+equation_deque: std.Deque(Equation),
 rule_table: RuleTable,
 
 pub fn init(gpa: std.mem.Allocator) !Self {

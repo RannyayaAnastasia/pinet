@@ -1,9 +1,33 @@
 Add(r, x) >< S(y) =>
     Add(w, x) ~ y,
     r ~ S(w);
+
 Add(r, x) >< Z() =>
     r ~ x;
-a ~ S(S(Z()));
-b ~ S(S(Z()));
-Add(r, a) ~ b;
+
+Dup(x1, x2) >< S(x) =>
+    Dup(w1, w2) ~ x,
+    x1 ~ S(w1),
+    x2 ~ S(w2);
+
+Dup(x1, x2) >< Z() =>
+    x1 ~ Z(),
+    x2 ~ Z();
+
+Mul(r, x) >< S(y) =>
+    Dup(x1,x2) ~ x,
+    Mul(w, x1) ~ y,
+    Add(r, w) ~ x2;
+
+Mul(r,x) >< Z() =>
+    r ~ Z(),
+    x ~ Eraser();
+
+Eraser() >< Z() =>;
+Eraser() >< S(x) =>
+    Eraser() ~ x;
+
+a ~ S(S(S(Z())));
+b ~ S(S(S(Z())));
+Mul(r, a) ~ b;
 r;

@@ -1,5 +1,12 @@
 const std = @import("std");
 
+pub const DebugPrintConfig = struct {
+    print_compiled_instructions: bool = false,
+    print_interactions: bool = false,
+};
+
+pub const debug_print_config: DebugPrintConfig = .{};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -40,6 +47,16 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+
+    const debug_printing = DebugPrintConfig{
+        .print_compiled_instructions = b.option(bool, "print-compiled-instructions", "print compiled instructions") orelse false,
+        .print_interactions = b.option(bool, "print-interactions", "print interaction points when they happen") orelse false,
+    };
+
+    const options = b.addOptions();
+    options.addOption(DebugPrintConfig, "debug_printing", debug_printing);
+
+    mod.addOptions("config", options);
 
     b.installArtifact(exe);
 

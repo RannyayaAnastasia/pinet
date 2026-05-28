@@ -5,6 +5,8 @@ const Types = @import("types.zig");
 const Runtime = @import("runtime.zig");
 const Instruction = @import("instruction.zig");
 
+const Config = @import("root.zig").Config;
+
 const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
@@ -285,8 +287,9 @@ pub fn evalEquation(vm: *VirtualMachine, eq: Equation) !void {
             break :blk;
         }
 
-        std.debug.print("{s} - name interaction\n", .{vm.runtime.agent_id_map.findKey(agent.id).?});
-
+        if (Config.debug_printing.print_interactions) {
+            std.debug.print("{s} - name interaction\n", .{vm.runtime.agent_id_map.findKey(agent.id).?});
+        }
         if (name.port) |port| {
             const new_eq = Equation{
                 .lhs = port,
@@ -301,7 +304,9 @@ pub fn evalEquation(vm: *VirtualMachine, eq: Equation) !void {
     var a1 = eq.lhs.agent;
     var a2 = eq.rhs.agent;
     const rule_key_maybe = vm.runtime.rule_table.get(.{ .lhs = a1.id, .rhs = a2.id });
-    std.debug.print("{s} - {s} interaction\n", .{ vm.runtime.agent_id_map.findKey(a1.id).?, vm.runtime.agent_id_map.findKey(a2.id).? });
+    if (Config.debug_printing.print_interactions) {
+        std.debug.print("{s} - {s} interaction\n", .{ vm.runtime.agent_id_map.findKey(a1.id).?, vm.runtime.agent_id_map.findKey(a2.id).? });
+    }
     if (rule_key_maybe) |rule_key| {
         if (rule_key[1]) {
             a1 = eq.rhs.agent;
@@ -350,8 +355,10 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
             },
             .rule => |rule| {
                 const compiled_rule = try Instruction.compileRule(vm.runtime, rule);
-                try Instruction.debugPrintInstruction(vm, compiled_rule.@"1");
-                std.debug.print("=========================\n", .{});
+                if (Config.debug_printing.print_compiled_instructions) {
+                    try Instruction.debugPrintInstruction(vm, compiled_rule.@"1");
+                    std.debug.print("=========================\n", .{});
+                }
                 try vm.runtime.rule_table.map.put(compiled_rule[0], compiled_rule[1]);
             },
             else => {
