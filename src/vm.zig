@@ -20,7 +20,7 @@ const number_of_registers = 100;
 
 name_heap: Heap(Name),
 agent_heap: Heap(Agent),
-registers: [number_of_registers]?Value,
+registers: [number_of_registers]Value,
 
 runtime: *Runtime,
 gpa: std.mem.Allocator,
@@ -108,7 +108,7 @@ pub fn init(gpa: std.mem.Allocator, runtime: *Runtime) !Self {
         .runtime = runtime,
         .agent_heap = try Heap(Agent).init(gpa, default_heap_size),
         .name_heap = try Heap(Name).init(gpa, default_heap_size),
-        .registers = @splat(null),
+        .registers = @splat(undefined),
         .gpa = gpa,
     };
 }
@@ -132,6 +132,9 @@ pub fn getAgentSymbolNested(vm: *const VirtualMachine, ag: *const Agent, stream:
                     var wire = _wire;
                     var cnt: u32 = 0;
                     while (wire.port) |wired_to| {
+                        if (Config.debug_printing.print_interactions) {
+                            try stream.write("(n)", .{});
+                        }
                         if (wired_to == .agent) {
                             try getAgentSymbolNested(vm, wired_to.agent, stream);
                             continue :outer;
@@ -170,6 +173,9 @@ pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![]const u8 {
                     var wire = _wire;
                     var cnt: u32 = 0;
                     while (wire.port) |wired_to| {
+                        if (Config.debug_printing.print_interactions) {
+                            try stream.write("(n)", .{});
+                        }
                         if (wired_to == .agent) {
                             try getAgentSymbolNested(vm, wired_to.agent, &stream);
                             continue :outer;
@@ -200,6 +206,9 @@ pub fn tryPrint(vm: *const VirtualMachine, val: Value) !void {
         cur = cur.name.port.?;
         idx += 1;
     }) {
+        if (Config.debug_printing.print_interactions) {
+            std.debug.print("(n)", .{});
+        }
         if (idx > 10) {
             std.debug.print("{any} is cyclic\n", .{val.name.*});
             return;
@@ -264,12 +273,12 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, original_eq:
                 vm.registers[instruction.operand1.?] = .{ .agent = ag };
             },
             .PutIntoPort => |port_idx| {
-                vm.registers[instruction.operand2.?].?.agent.ports[port_idx] = vm.registers[instruction.operand1.?].?;
+                vm.registers[instruction.operand2.?].agent.ports[port_idx] = vm.registers[instruction.operand1.?];
             },
             .Push => {
                 const eq = Equation{
-                    .lhs = vm.registers[instruction.operand1.?].?,
-                    .rhs = vm.registers[instruction.operand2.?].?,
+                    .lhs = vm.registers[instruction.operand1.?],
+                    .rhs = vm.registers[instruction.operand2.?],
                 };
                 try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
             },
@@ -280,7 +289,7 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, original_eq:
             },
             .PutArgumentPort => |port| {
                 const val = if (port.take_lhs) original_eq.lhs else original_eq.rhs;
-                vm.registers[instruction.operand1.?].?.name.port = val.agent.ports[port.port_idx].?;
+                vm.registers[instruction.operand1.?].name.port = val.agent.ports[port.port_idx].?;
             },
         }
     }
@@ -319,14 +328,14 @@ pub fn evalEquation(vm: *VirtualMachine, eq: Equation) !void {
             } else {
                 // rhs is new, left has something
                 // This should not happen on the top level
-                eq.rhs.name.port = lport;
+                eq.rhs.name.port = lport.unchain();
                 Heap(Name).freeOne(eq.lhs.name);
             }
         } else {
             if (eq.rhs.name.port) |rport| {
                 // lhs is new, right has something
                 // This should not happen on the top level
-                eq.lhs.name.port = rport;
+                eq.lhs.name.port = rport.unchain();
                 Heap(Name).freeOne(eq.rhs.name);
             } else {
                 // In case a ~ b; and a and b were new names
@@ -439,7 +448,7 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
             .rule => |rule| {
                 const compiled_rule = try Instruction.compileRule(vm.runtime, rule);
                 if (Config.debug_printing.print_compiled_instructions) {
-                    try Instruction.debugPrintInstruction(vm, compiled_rule.@"1");
+                    try Instruction.debugPrintInstruction(vm, compiled_rule[1]);
                     std.debug.print("=========================\n", .{});
                 }
                 try vm.runtime.rule_table.map.put(compiled_rule[0], compiled_rule[1]);

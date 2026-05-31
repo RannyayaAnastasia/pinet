@@ -1,4 +1,5 @@
 const std = @import("std");
+const Heap = @import("vm.zig").Heap;
 
 const number_of_ports = 10;
 
@@ -13,11 +14,52 @@ pub const Agent = struct {
 
 pub const Name = struct {
     port: ?Value,
+
+    pub fn unchain(name: *Name) void {
+        var node = if ((name.port orelse return) == .name) name.port.?.name else return;
+        while (node.port) |port| {
+            if (port == .name) {
+                Heap(Name).freeOne(node);
+                node = port.name;
+            } else break;
+        }
+        name.port = node.port;
+        Heap(Name).freeOne(node);
+    }
 };
 
 pub const Value = union(enum) {
     name: *Name,
     agent: *Agent,
+
+    pub fn unchain(val: Value) Value {
+        switch (val) {
+            .name => |name| {
+                name.unchain();
+                if (name.port) |port| {
+                    Heap(Name).freeOne(name);
+                    return .{ .agent = port.agent };
+                }
+                return val;
+            },
+            .agent => {
+                return val;
+            },
+        }
+    }
+
+    pub fn unchainPtr(val: *Value) void {
+        switch (val.*) {
+            .name => |name| {
+                name.unchain();
+                if (name.port) |port| {
+                    Heap(Name).freeOne(name);
+                    val.* = .{ .agent = port.agent };
+                }
+            },
+            .agent => {},
+        }
+    }
 };
 
 pub const Equation = struct {

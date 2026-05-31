@@ -4,9 +4,9 @@ Pinet is a (not yet) parallel interaction nets interpreter, inspired by Inpla. T
 
 ## How to run
 
-Install zig compiler, then it's simple:
+Install zig compiler v0.16, then it's simple:
 
-```sh
+```
 $ zig build
 $ zig build test
 $ zig build run
@@ -22,6 +22,7 @@ Pinet is in early development.
 
 - custom rules
 - single-threaded evaluation
+- builtins (dups, erasers) using static virtual tables
 
 ### TODO
 
@@ -32,7 +33,7 @@ Pinet is in early development.
 - number support
 - rules for wildcart agents (`Agent() >< any => ...;`)
 - lists support
-- builtins (dups, erasers) using static virtual tables
+- research into name chaining (a lot of unnecessary temporary names get created during execution, which leads to increased memory consumption)
 - multithreading
 
 # Acknowledgement & Lineage
