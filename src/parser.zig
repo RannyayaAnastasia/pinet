@@ -171,6 +171,7 @@ pub const Parser = struct {
                 ret.val.name = tentry.content.?;
                 _ = self.advance();
             },
+            .numeric_literal => {},
             .lparen => {
                 tuple = true;
             },

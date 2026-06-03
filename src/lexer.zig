@@ -20,7 +20,11 @@ pub const Token = struct {
 
     pub const Tag = enum {
         identifier,
+        string_literal,
+        keyword_const,
         keyword_free,
+        numeric_literal,
+
         lparen,
         rparen,
         fatrightarrow,
@@ -38,20 +42,19 @@ pub const Token = struct {
         asterisk,
         plus,
         minus,
-        keyword_const,
         lbracket,
         rbracket,
         lbrace,
         rbrace,
         commentline,
-        string_literal,
         eof,
         invalid,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
-                .identifier, .eof, .string_literal, .invalid => null,
+                .identifier, .eof, .string_literal, .numeric_literal, .invalid => null,
                 .keyword_free => "free",
+                .keyword_const => "const",
                 .lparen => "(",
                 .rparen => ")",
                 .fatrightarrow => "=>",
@@ -69,7 +72,6 @@ pub const Token = struct {
                 .asterisk => "*",
                 .plus => "+",
                 .minus => "-",
-                .keyword_const => "const",
                 .lbracket => "[",
                 .rbracket => "]",
                 .lbrace => "{",
@@ -82,6 +84,7 @@ pub const Token = struct {
                 .identifier => "an identifier",
                 .eof => "EOF",
                 .string_literal => "a string literal",
+                .numeric_literal => "a numeric literal",
                 .invalid => "an invalid token",
                 else => unreachable,
             };
@@ -128,6 +131,8 @@ pub const Tokenizer = struct {
         start,
         string_literal,
         numeric_literal,
+        decimal,
+
         identifier,
         state,
         eq,
@@ -171,6 +176,10 @@ pub const Tokenizer = struct {
                 'a'...'z', 'A'...'Z', '_' => {
                     result.tag = .identifier;
                     continue :state .identifier;
+                },
+                '0'...'9' => {
+                    result.tag = .numeric_literal;
+                    continue :state .numeric_literal;
                 },
                 '(' => {
                     self.advance();
@@ -228,6 +237,10 @@ pub const Tokenizer = struct {
                     // Unclear if the string literals will even be necessary
                     result.tag = .string_literal;
                     continue :state .string_literal;
+                },
+                '.' => {
+                    // We don't allow .123 type numbers?
+                    continue :state .invalid;
                 },
                 else => {
                     std.debug.print("{c}", .{self.buffer[self.index]});
@@ -296,6 +309,40 @@ pub const Tokenizer = struct {
                     else => continue :state .string_literal,
                 }
             },
+            .numeric_literal => {
+                self.advance();
+                switch (self.buffer[self.index]) {
+                    '0'...'9' => {
+                        continue :state .numeric_literal;
+                    },
+                    '.' => {
+                        self.advance();
+                        if (self.index == self.buffer.len or self.buffer[self.index] == '\n') {
+                            result.tag = .invalid;
+                        } else if (!std.ascii.isDigit(self.buffer[self.index])) {
+                            continue :state .invalid;
+                        } else {
+                            continue :state .decimal;
+                        }
+                    },
+                    else => {
+                        const content = self.buffer[result.loc.start.index..self.index];
+                        result.content = content;
+                    },
+                }
+            },
+            .decimal => {
+                self.advance();
+                switch (self.buffer[self.index]) {
+                    '0'...'9' => {
+                        continue :state .decimal;
+                    },
+                    else => {
+                        const content = self.buffer[result.loc.start.index..self.index];
+                        result.content = content;
+                    },
+                }
+            },
             .invalid => {
                 self.advance();
                 switch (self.buffer[self.index]) {
@@ -332,6 +379,10 @@ const TokenizeTestError = error{
     NotEqual,
     BadLength,
 };
+
+test "numerals" {
+    try testTokenize("123\n123.123\n0\n123.\n.123\n0", &.{ .numeric_literal, .numeric_literal, .numeric_literal, .invalid, .invalid, .numeric_literal });
+}
 
 test "single active pair program" {
     try testTokenize(
