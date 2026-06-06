@@ -28,9 +28,9 @@ Pinet is in early development.
 - [ ] optional debug printing
 - [ ] error handling on all stages
 - [ ] conditionals in rules
-- [ ]rules for wildcart agents (`Agent() >< any => ...;`)
-- [ ]research into name chaining (a lot of unnecessary temporary names get created during execution, which leads to increased memory consumption)
-- [ ]multithreading
+- [ ] rules for wildcart agents (`Agent() >< any => ...;`)
+- [ ] research into name chaining (a lot of unnecessary temporary names get created during execution, which leads to increased memory consumption)
+- [ ] multithreading
 
 # Acknowledgement & Lineage
 
