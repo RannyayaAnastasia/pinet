@@ -13,6 +13,7 @@ const BufferedStringStream = struct {
     buffer: []u8,
     offset: usize,
     print_buf: []u8,
+    gpa: std.mem.Allocator,
 
     pub fn init(gpa: std.mem.Allocator, size: usize) !BufferedStringStream {
         const buffer = try gpa.alloc(u8, size);
@@ -21,9 +22,11 @@ const BufferedStringStream = struct {
             .buffer = buffer,
             .offset = 0,
             .print_buf = buffer,
+            .gpa = gpa,
         };
     }
     pub fn write(self: *BufferedStringStream, comptime fmt: []const u8, args: anytype) !void {
+        errdefer self.gpa.free(self.buffer);
         const written = try std.fmt.bufPrint(self.print_buf, fmt, args);
         self.offset += written.len;
         self.print_buf = self.buffer[self.offset..];
@@ -104,8 +107,16 @@ pub fn tryPrint(vm: *const VM, val: Value) !void {
             return;
         }
     }
-    const bytes = try getAgentSymbol(vm, cur.agent);
+    const bytes = getAgentSymbol(vm, cur.agent) catch |err| {
+        if (err == error.NoSpaceLeft) {
+            std.debug.print("Agent symbol is too long to print\n", .{});
+            return;
+        }
+        return err;
+    };
     defer vm.gpa.free(bytes);
-    // TODO: use real io instead of debug print
-    std.debug.print("{s}\n", .{bytes});
+
+    var stdout = std.Io.File.stdout();
+    var writer = stdout.writerStreaming(vm.runtime.io, &.{});
+    try writer.interface.print("{s}\n", .{bytes});
 }

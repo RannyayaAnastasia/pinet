@@ -87,6 +87,7 @@ pub const builtin_agents = [_]BuiltinAgent{
     .{ .name = "Mul", .arity = 2, .impl = unbuiltin },
     .{ .name = "Div", .arity = 2, .impl = unbuiltin },
 
+    // lists
     .{ .name = "Cons", .arity = 2, .impl = unbuiltin },
     .{ .name = "Nil", .arity = 0, .impl = unbuiltin },
     .{ .name = "MakeRandomList", .arity = 1, .impl = make_random_list },

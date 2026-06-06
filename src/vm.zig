@@ -189,9 +189,8 @@ pub fn runEquations(vm: *VirtualMachine) !void {
 }
 
 pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
-    var index: usize = 0;
-    while (index < program.statements.len) : (index += 1) {
-        switch (program.statements[index].val) {
+    for (program.statements) |statement| {
+        switch (statement.val) {
             .print_stmt => |name_to_print| {
                 if (vm.runtime.associated_names.get(name_to_print.val)) |maybe_name| {
                     if (maybe_name) |name| {
@@ -226,7 +225,9 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 const compiled_rule = try Instruction.compileRule(vm.runtime, rule);
                 if (Config.debug_printing.print_compiled_instructions) {
                     try Instruction.debugPrintInstruction(vm, compiled_rule[1]);
-                    std.debug.print("=========================\n", .{});
+                    const guard_size = 40;
+                    const guard: [guard_size]u8 = comptime @splat('=');
+                    std.debug.print("{s}\n", .{&guard});
                 }
                 try vm.runtime.rule_table.map.put(compiled_rule[0], compiled_rule[1]);
             },

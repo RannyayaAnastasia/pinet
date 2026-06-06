@@ -1,7 +1,18 @@
 
-MakeRandomList(lst) ~ 1;
+Add(r, x) >< Cons(elem, tail) =>
+    Add(w, x) ~ elem,
+    Add(r, w) ~ tail;
+
+Add(r, x) >< Nil() =>
+    r ~ x;
+
+
+MakeRandomList(lst) ~ 10;
 
 // We can't really sort now because we don't have a way to compare the values,
 // but we can at least make sure it doesn't crash.
 
 lst;
+
+Add(r, 0) ~ lst;
+r;

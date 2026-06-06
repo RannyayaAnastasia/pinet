@@ -131,26 +131,30 @@ pub const Parser = struct {
 
     fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing }![]Node(Object) {
         var list = std.ArrayList(Node(Object)).empty;
-        const objt = self.peek();
-        objtoken: switch (objt.tag) {
-            .rparen => {
-                return list.items;
-            },
-            .identifier, .lparen, .numeric_literal => {
-                const obj = try self.parseObject();
-                try list.append(self.allocator, obj);
-                if (self.peek().tag == .comma) {
-                    _ = self.advance();
-                    continue :objtoken self.peek().tag;
-                }
-            },
-            else => {
-                self.err = .{
-                    .pos = self.index,
-                    .tag = .{ .ExpectedObject = .{ .found = self.peek().tag } },
-                };
-                return Error.ErrorDuringParsing;
-            },
+
+        while (self.peek().tag != .rparen) {
+            switch (self.peek().tag) {
+                .identifier, .lparen, .numeric_literal => {
+                    const obj = try self.parseObject();
+                    try list.append(self.allocator, obj);
+                    if (self.peek().tag == .comma) {
+                        _ = self.advance();
+                    } else if (self.peek().tag != .rparen) {
+                        self.err = .{
+                            .pos = self.index,
+                            .tag = .{ .ExpectedObject = .{ .found = self.peek().tag } },
+                        };
+                        return Error.ErrorDuringParsing;
+                    }
+                },
+                else => {
+                    self.err = .{
+                        .pos = self.index,
+                        .tag = .{ .ExpectedObject = .{ .found = self.peek().tag } },
+                    };
+                    return Error.ErrorDuringParsing;
+                },
+            }
         }
         return try list.toOwnedSlice(self.allocator);
     }
