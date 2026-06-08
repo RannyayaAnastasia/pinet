@@ -32,10 +32,7 @@ const Tag = union(enum) {
     MkSpecial: Special,
     PutIntoPort: PortIdx,
     Push,
-    PutArgumentPort: struct {
-        take_lhs: bool,
-        port_idx: usize,
-    },
+    LoadArguments,
 };
 
 pub fn mk_agent(id: Agent.Id, loc: RegisterId) Instruction {
@@ -75,19 +72,20 @@ pub fn push(lhs: RegisterId, rhs: RegisterId) Instruction {
     };
 }
 
-pub fn put_argument_port(reg: RegisterId, take_lhs: bool, port_idx: usize) Instruction {
+pub fn load_arguments() Instruction {
     return .{
-        .tag = .{ .PutArgumentPort = .{ .take_lhs = take_lhs, .port_idx = port_idx } },
-        .operand1 = reg,
+        .tag = .LoadArguments,
     };
 }
 
 pub fn debugPrintInstruction(vm: *const VM, instrs: []Instruction) !void {
     for (instrs) |instr| {
         defer std.debug.print("\n\n", .{});
-        std.debug.print("REG{} ", .{instr.operand1});
+        if (instr.tag != .LoadArguments) {
+            std.debug.print("REG{}", .{instr.operand1});
+        }
         if (instr.tag == .Push or instr.tag == .PutIntoPort) {
-            std.debug.print("TO REG{}", .{instr.operand2});
+            std.debug.print(" TO REG{}", .{instr.operand2});
         }
         std.debug.print(": ", .{});
         switch (instr.tag) {
@@ -101,8 +99,8 @@ pub fn debugPrintInstruction(vm: *const VM, instrs: []Instruction) !void {
             .MkName => {
                 std.debug.print("MKNAME", .{});
             },
-            .PutArgumentPort => |port| {
-                std.debug.print("PUT INTO {s} ARGUMENT PORT {}", .{ (if (port.take_lhs) "LHS" else "RHS"), port.port_idx });
+            .LoadArguments => {
+                std.debug.print("LOAD ARGUMENTS", .{});
             },
             .PutIntoPort => |port| {
                 std.debug.print("PUT INTO {} PORT", .{port});
@@ -244,26 +242,35 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
     defer scope.deinit();
 
     // init the "arguments"
+    try list.append(runtime.allocator, load_arguments());
 
-    for (rule.lhs.val.portlist.?, 0..) |port_node, idx| {
+    for (rule.lhs.val.portlist.?) |port_node| {
         const port = port_node.val;
         if (port.portlist) |_| {
             return error.AgentInLhsArgument;
         } else {
-            const compiledName = try compileName(runtime, port, &scope);
-            try list.appendSlice(runtime.allocator, compiledName.instrs);
-            try list.append(runtime.allocator, put_argument_port(compiledName.name_info.location, true, idx));
+            _ = scope.associate(port.name) catch |err| {
+                if (err == error.ValueExists) {
+                    return error.NameUsedTwice;
+                } else {
+                    return err;
+                }
+            };
         }
     }
 
-    for (rule.rhs.val.portlist.?, 0..) |port_node, idx| {
+    for (rule.rhs.val.portlist.?) |port_node| {
         const port = port_node.val;
         if (port.portlist) |_| {
             return error.AgentInRhsArgument;
         } else {
-            const compiledName = try compileName(runtime, port, &scope);
-            try list.appendSlice(runtime.allocator, compiledName.instrs);
-            try list.append(runtime.allocator, put_argument_port(compiledName.name_info.location, false, idx));
+            _ = scope.associate(port.name) catch |err| {
+                if (err == error.ValueExists) {
+                    return error.NameUsedTwice;
+                } else {
+                    return err;
+                }
+            };
         }
     }
 

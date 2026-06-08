@@ -11,10 +11,12 @@ const Equation = Types.Equation;
 
 // builtin agents logic
 
+// TODO: make there be less outside errors?
 pub const BuiltinAgentError = error{
     Exiter,
     OutOfMemory,
     NoSpaceLeft,
+    WriteFailed,
     ArityMismatch,
     NoRuleSpecified,
     BadSecondaryArgument,
@@ -38,10 +40,10 @@ pub const BuiltinNameMap = comptime_init: {
     break :comptime_init std.StaticStringMap(Agent.Id).initComptime(&kvs);
 };
 
-pub const UserAgentIdStart = builtin_agents.len;
+pub const user_agent_id_start = builtin_agents.len;
 
 pub fn isBuiltinAgent(id: Agent.Id) bool {
-    return id < UserAgentIdStart;
+    return id < user_agent_id_start;
 }
 
 pub fn init(allocator: std.mem.Allocator) !void {

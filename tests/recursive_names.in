@@ -7,3 +7,14 @@ h ~ World(p);
 p ~ v;
 v ~ World'();
 a;
+
+A(r, x) >< B(v, y) =>
+  y ~ x, r ~ v;
+
+X(r) >< Y(v) =>
+  a ~ b,
+  A(r, a) ~ B(v, b);
+
+X(r) ~ Y(Z());
+
+r;

@@ -166,9 +166,23 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Age
                 name.* = .{ .port = null };
                 vm.registers[instruction.operand1] = .{ .name = name };
             },
-            .PutArgumentPort => |port| {
-                const val = if (port.take_lhs) lagent else ragent;
-                vm.registers[instruction.operand1].name.port = val.ports[port.port_idx].?;
+            .LoadArguments => {
+                const larity = vm.runtime.agent_arities.map.get(lagent.id).?;
+                const rarity = vm.runtime.agent_arities.map.get(ragent.id).?;
+                var idx: u16 = 0;
+                for (0..larity) |port_idx| {
+                    // For some reason just assigning register to a port
+                    // directly causes some trouble, need to look into that.
+                    //
+                    vm.registers[idx] = .{ .name = try vm.name_heap.getOne() };
+                    vm.registers[idx].name.port = lagent.ports[port_idx];
+                    idx += 1;
+                }
+                for (0..rarity) |port_idx| {
+                    vm.registers[idx] = .{ .name = try vm.name_heap.getOne() };
+                    vm.registers[idx].name.port = ragent.ports[port_idx];
+                    idx += 1;
+                }
             },
         }
     }

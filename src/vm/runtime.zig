@@ -17,7 +17,7 @@ const RuleKey = Instruction.RuleKey;
 
 pub const IdCountingHashMap = struct {
     map: std.StringHashMap(Agent.Id),
-    free_id: Agent.Id = Builtin.UserAgentIdStart,
+    free_id: Agent.Id = Builtin.user_agent_id_start,
 
     pub fn init(allocator: std.mem.Allocator) !IdCountingHashMap {
         // Another solution is just bypassing normal search in hashmap in get function

@@ -33,6 +33,8 @@ const BufferedStringStream = struct {
     }
 };
 
+const max_cycle_length = 20;
+
 fn getAgentSymbolNested(vm: *const VM, ag: *const Agent, stream: *BufferedStringStream) !void {
     const name = vm.runtime.agent_id_map.findKey(ag.id);
     try stream.write("{s}(", .{name.?});
@@ -46,8 +48,6 @@ fn getAgentSymbolNested(vm: *const VM, ag: *const Agent, stream: *BufferedString
                 .name => |_wire| {
                     var wire = _wire;
                     var cnt: u32 = 0;
-
-                    const max_cycle_length = 20;
 
                     while (wire.port) |wired_to| {
                         if (Config.debug_printing.print_interactions) {
@@ -102,7 +102,7 @@ pub fn tryPrint(vm: *const VM, val: Value) !void {
         if (Config.debug_printing.print_interactions) {
             std.debug.print("(n)", .{});
         }
-        if (idx > 10) {
+        if (idx > max_cycle_length) {
             std.debug.print("{any} is cyclic\n", .{val.name.*});
             return;
         }
