@@ -23,11 +23,13 @@ pub const Token = struct {
         string_literal,
         keyword_const,
         keyword_free,
+        keyword_otherwise,
         numeric_literal,
 
         lparen,
         rparen,
         fatrightarrow,
+        exclamation_mark,
         less,
         leq,
         greater,
@@ -39,6 +41,10 @@ pub const Token = struct {
         comma,
         semicolon,
         colon,
+        pipe,
+        logic_or,
+        ampersand,
+        logic_and,
         asterisk,
         plus,
         minus,
@@ -55,9 +61,11 @@ pub const Token = struct {
                 .identifier, .eof, .string_literal, .numeric_literal, .invalid => null,
                 .keyword_free => "free",
                 .keyword_const => "const",
+                .keyword_otherwise => "otherwise",
                 .lparen => "(",
                 .rparen => ")",
                 .fatrightarrow => "=>",
+                .exclamation_mark => "!",
                 .less => "<",
                 .leq => "<=",
                 .greater => ">",
@@ -69,6 +77,10 @@ pub const Token = struct {
                 .comma => ",",
                 .semicolon => ";",
                 .colon => ":",
+                .pipe => "|",
+                .logic_or => "||",
+                .ampersand => "&",
+                .logic_and => "&&",
                 .asterisk => "*",
                 .plus => "+",
                 .minus => "-",
@@ -94,7 +106,9 @@ pub const Token = struct {
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
         .{ "free", .keyword_free },
         .{ "const", .keyword_const },
+        .{ "otherwise", .keyword_otherwise },
     });
+
     pub fn getKeyword(content: []const u8) ?Tag {
         return keywords.get(content);
     }
@@ -138,6 +152,8 @@ pub const Tokenizer = struct {
         eq,
         less,
         greater,
+        pipe,
+        ampersand,
         forward_slash,
         commentline,
         end,
@@ -215,6 +231,10 @@ pub const Tokenizer = struct {
                     self.advance();
                     result.tag = .colon;
                 },
+                '!' => {
+                    self.advance();
+                    result.tag = .exclamation_mark;
+                },
                 ',' => {
                     self.advance();
                     result.tag = .comma;
@@ -222,6 +242,14 @@ pub const Tokenizer = struct {
                 '~' => {
                     self.advance();
                     result.tag = .tilde;
+                },
+                '|' => {
+                    self.advance();
+                    continue :state .pipe;
+                },
+                '&' => {
+                    self.advance();
+                    continue :state .ampersand;
                 },
                 '=' => {
                     self.advance();
@@ -252,6 +280,20 @@ pub const Tokenizer = struct {
                     std.debug.print("{c}", .{self.buffer[self.index]});
                     unreachable;
                 },
+            },
+            .pipe => switch (self.buffer[self.index]) {
+                '|' => {
+                    self.advance();
+                    result.tag = .logic_or;
+                },
+                else => result.tag = .pipe,
+            },
+            .ampersand => switch (self.buffer[self.index]) {
+                '&' => {
+                    self.advance();
+                    result.tag = .logic_and;
+                },
+                else => result.tag = .ampersand,
             },
             .eq => switch (self.buffer[self.index]) {
                 '=' => {

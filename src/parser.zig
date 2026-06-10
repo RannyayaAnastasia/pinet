@@ -36,10 +36,50 @@ pub const ActivePair = struct {
     rhs: Node(Object),
 };
 
+pub const Expression = union(enum) {
+    binary_op: BinaryExpr,
+    unary_op: UnaryExpr,
+    atom: Node(Object),
+
+    pub const BinaryExpr = struct {
+        lhs: *Node(Expression),
+        rhs: *Node(Expression),
+        tag: Tag,
+
+        pub const Tag = enum {
+            eq,
+            logic_or,
+            logic_and,
+
+            pub fn symbol(self: Tag) []const u8 {
+                return switch (self) {
+                    .eq => "==",
+                    .logic_or => "||",
+                    .logic_and => "&&",
+                };
+            }
+        };
+    };
+
+    pub const UnaryExpr = struct {
+        item: *Node(Expression),
+        tag: Tag,
+
+        pub const Tag = enum {
+            not,
+        };
+    };
+};
+
+pub const RuleExpression = struct {
+    expr: ?*Node(Expression),
+    pairs: []Node(ActivePair),
+};
+
 pub const Rule = struct {
     lhs: Node(Object),
     rhs: Node(Object),
-    pairs: []Node(ActivePair),
+    rule_exprs: []RuleExpression,
 };
 
 pub const Statement = union(enum) {
@@ -63,16 +103,20 @@ const ParserError = struct {
         UnexpectedEof: void,
         ExpectedObject: struct { found: Token.Tag },
         ExpectedStatement: struct { found: Token.Tag },
+        ExpectedExpression: struct { found: Token.Tag },
         UnexpectedToken: struct { expected: Token.Tag, actual: Token.Tag },
     };
+
     pub fn message(self: *const ParserError, alloc: std.mem.Allocator) ![]const u8 {
         return switch (self.tag) {
             .UnexpectedEof => "Unexpected end of file",
             .ExpectedObject => |val| try std.fmt.allocPrint(alloc, "Expected object, found token: {s}", .{val.found.symbol()}),
-            .ExpectedStatement => |val| (try std.fmt.allocPrint(alloc, "Expected statement, found token: {s}", .{val.found.symbol()})),
+            .ExpectedStatement => |val| try std.fmt.allocPrint(alloc, "Expected statement, found token: {s}", .{val.found.symbol()}),
+            .ExpectedExpression => |val| try std.fmt.allocPrint(alloc, "Expected expression, found token: {s}", .{val.found.symbol()}),
             .UnexpectedToken => |val| try std.fmt.allocPrint(alloc, "Expected {s}, found {s}", .{ val.expected.symbol(), val.actual.symbol() }),
         };
     }
+
     pub fn messageLine(self: *const ParserError, alloc: std.mem.Allocator, parser_data: *const Parser) ![]const u8 {
         const loc = parser_data.tokens[self.pos].loc.start;
         const msg = try self.message(alloc);
@@ -127,6 +171,79 @@ pub const Parser = struct {
     fn advance(self: *Parser) Token {
         self.index += 1;
         return self.tokens[self.index - 1];
+    }
+
+    fn getTokenInfixBP(self: *Parser, tag: Token.Tag) !struct { i32, i32 } {
+        return switch (tag) {
+            .logic_or => .{ 10, 11 },
+            .logic_and => .{ 20, 21 },
+            .eq => .{ 30, 31 },
+            else => {
+                self.err = .{
+                    .pos = self.index,
+                    .tag = .{
+                        .ExpectedExpression = .{ .found = tag },
+                    },
+                };
+                return Error.ErrorDuringParsing;
+            },
+        };
+    }
+
+    fn parseUnary(self: *Parser) !*Node(Expression) {
+        const expr = try self.allocator.create(Node(Expression));
+        expr.tslice.start = @intCast(self.index);
+        defer expr.tslice.end = @intCast(self.index);
+        expr.val = switch (self.peek().tag) {
+            .exclamation_mark => Expression{ .unary_op = .{ .tag = .not, .item = try self.parseUnary() } },
+            else => Expression{ .atom = try self.parseObject() },
+        };
+        return expr;
+    }
+
+    fn parseExpression(self: *Parser, min_bp: i32) !*Node(Expression) {
+        // a   ||   b    ==     c     &&     d
+        //   20  21   11    10     30    31
+        var lhs = try self.parseUnary();
+        while (true) {
+            const token = self.peek().tag;
+            const op: Expression.BinaryExpr.Tag = switch (token) {
+                .fatrightarrow => break,
+                .eq => .eq,
+                .logic_and => .logic_and,
+                .logic_or => .logic_or,
+                else => {
+                    self.err = .{
+                        .pos = self.index,
+                        .tag = .{ .ExpectedExpression = .{ .found = token } },
+                    };
+                    return Error.ErrorDuringParsing;
+                },
+            };
+
+            const lbp, const rbp = try self.getTokenInfixBP(token);
+            if (lbp < min_bp) {
+                break;
+            }
+            _ = self.advance();
+            const rhs = try self.parseExpression(rbp);
+            const new_lhs = try self.allocator.create(Node(Expression));
+            new_lhs.* = .{
+                .tslice = .{
+                    .start = lhs.tslice.start,
+                    .end = @intCast(self.index),
+                },
+                .val = .{
+                    .binary_op = .{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                        .tag = op,
+                    },
+                },
+            };
+            lhs = new_lhs;
+        }
+        return lhs;
     }
 
     fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing }![]Node(Object) {
@@ -324,6 +441,12 @@ pub const Parser = struct {
         return list.toOwnedSlice(self.allocator);
     }
 
+    pub fn parseRule(self: *Parser, lhs: Node(Object)) !Rule {
+        _ = lhs;
+        _ = self;
+        return Error.ErrorDuringParsing;
+    }
+
     pub fn parseStmt(self: *Parser) !?Node(Statement) {
         const tentry = self.peek();
         var ret: Node(Statement) = .{ .val = undefined, .tslice = .{ .start = @intCast(self.index), .end = undefined } };
@@ -346,10 +469,7 @@ pub const Parser = struct {
                 switch (connection.tag) {
                     .rule_symbol => {
                         _ = self.advance();
-                        const rhs = try self.parseObject();
-                        try self.expectTag(.fatrightarrow, self.advance().tag);
-                        const pairs = try self.parsePairs();
-                        ret.val = .{ .rule = .{ .lhs = lhs, .rhs = rhs, .pairs = pairs } };
+                        ret.val = .{ .rule = try self.parseRule(lhs) };
                     },
                     .tilde => {
                         _ = self.advance();
@@ -490,4 +610,90 @@ test "free stmt" {
         },
         else => unreachable,
     }
+}
+
+// Maybe another way is hidden somewhere in std?
+const BufferedStringStream = @import("vm/printing.zig").BufferedStringStream;
+
+fn writeObject(stream: *BufferedStringStream, obj: Object) !void {
+    try stream.write("{s}", .{obj.name});
+    if (obj.portlist) |portlist| {
+        try stream.write("(", .{});
+        for (portlist) |port| {
+            try writeObject(stream, port.val);
+        }
+        try stream.write(")", .{});
+    }
+}
+
+fn to_SExpression_nested(expr: Expression, stream: *BufferedStringStream) !void {
+    switch (expr) {
+        .atom => |obj| {
+            try writeObject(stream, obj.val);
+        },
+        .binary_op => |binary_op| {
+            try stream.write("({s} ", .{binary_op.tag.symbol()});
+            try to_SExpression_nested(binary_op.lhs.val, stream);
+            try stream.write(" ", .{});
+            try to_SExpression_nested(binary_op.rhs.val, stream);
+            try stream.write(")", .{});
+        },
+        .unary_op => {},
+    }
+}
+
+// Returns a buffer that is bigger than the actual data
+fn to_SExpression(gpa: std.mem.Allocator, expr: Expression) ![:0]const u8 {
+    const max_buffer_size = 512;
+    var stream = try BufferedStringStream.init(gpa, max_buffer_size);
+    try to_SExpression_nested(expr, &stream);
+
+    defer gpa.free(stream.buffer);
+    return try gpa.dupeSentinel(u8, stream.buffer[0..stream.offset], 0);
+}
+
+test "hand-written expr to s-expr" {
+    const gpa = std.testing.allocator;
+
+    const a_expr = try gpa.create(Node(Expression));
+    defer gpa.destroy(a_expr);
+    const b_expr = try gpa.create(Node(Expression));
+    defer gpa.destroy(b_expr);
+
+    a_expr.* = .{ .tslice = undefined, .val = .{ .atom = .{ .tslice = undefined, .val = .{ .name = "a", .portlist = null } } } };
+    b_expr.* = .{ .tslice = undefined, .val = .{ .atom = .{ .tslice = undefined, .val = .{ .name = "b", .portlist = null } } } };
+
+    const expr = Expression{ .binary_op = .{
+        .lhs = a_expr,
+        .rhs = b_expr,
+        .tag = .eq,
+    } };
+
+    const actual = try to_SExpression(gpa, expr);
+    defer gpa.free(actual);
+    const expected = "(== a b)";
+    try std.testing.expectEqualSentinel(u8, 0, expected, actual);
+}
+
+test "parsing an expression" {
+    const gpa = std.testing.allocator;
+
+    const contents = "a || b == c && d             \n=>";
+
+    const tokens = try Lexer.tokenize(gpa, contents);
+    defer gpa.free(tokens);
+
+    var parser = try Parser.init(tokens, gpa);
+    defer parser.deinit(gpa);
+
+    const expr = parser.parseExpression(0) catch |err| {
+        if (err == Error.ErrorDuringParsing) {
+            std.debug.print("{s}\n", .{try parser.err.?.messageLine(parser.allocator, &parser)});
+        }
+        return err;
+    };
+
+    const sexpr = try to_SExpression(gpa, expr.val);
+    defer gpa.free(sexpr);
+    try std.testing.expectEqualSentinel(u8, 0, "(|| a (&& (== b c) d))", sexpr);
 }

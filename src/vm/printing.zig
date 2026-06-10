@@ -9,7 +9,7 @@ const Value = Types.Value;
 const Name = Types.Name;
 const Equation = Types.Equation;
 
-const BufferedStringStream = struct {
+pub const BufferedStringStream = struct {
     buffer: []u8,
     offset: usize,
     print_buf: []u8,
