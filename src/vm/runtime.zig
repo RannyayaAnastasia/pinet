@@ -14,6 +14,7 @@ const Value = Types.Value;
 const Name = Types.Name;
 const Equation = Types.Equation;
 const RuleKey = Instruction.RuleKey;
+const ConditionedRule = Instruction.ConditionedRule;
 
 pub const IdCountingHashMap = struct {
     map: std.StringHashMap(Agent.Id),
@@ -86,20 +87,20 @@ pub const ArityMap = struct {
 };
 
 pub const RuleTable = struct {
-    map: std.AutoHashMap(RuleKey, []Instruction),
+    map: std.AutoHashMap(RuleKey, []ConditionedRule),
 
-    pub fn get(self: *RuleTable, ap: RuleKey) !struct { []Instruction, bool } {
-        if (self.map.get(ap)) |instrs| {
-            return .{ instrs, false };
-        } else if (self.map.get(.{ .lhs = ap.rhs, .rhs = ap.lhs })) |instrs| {
-            return .{ instrs, true };
+    pub fn get(self: *RuleTable, ap: RuleKey) !struct { []ConditionedRule, bool } {
+        if (self.map.get(ap)) |rules| {
+            return .{ rules, false };
+        } else if (self.map.get(.{ .lhs = ap.rhs, .rhs = ap.lhs })) |rules| {
+            return .{ rules, true };
         } else {
             return error.UnknownRule;
         }
     }
     pub fn init(allocator: std.mem.Allocator) RuleTable {
         return .{
-            .map = std.AutoHashMap(RuleKey, []Instruction).init(allocator),
+            .map = std.AutoHashMap(RuleKey, []ConditionedRule).init(allocator),
         };
     }
 };

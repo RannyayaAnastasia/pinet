@@ -112,7 +112,11 @@ pub fn debugPrintInstruction(vm: *const VM, instrs: []Instruction) !void {
     }
 }
 
-const CompiledRule = struct { RuleKey, []Instruction };
+pub const CompiledRule = struct { RuleKey, []ConditionedRule };
+
+pub const ConditionedRule = struct { condition: ?*AST.Node(AST.Expression), instructions: CompiledPairs };
+
+const CompiledPairs = []Instruction;
 
 const CompiledTerm = struct { reg: RegisterId, instrs: []Instruction };
 
@@ -234,9 +238,7 @@ pub fn compileTerm(runtime: *Runtime, obj: AST.Object, scope: *Scope) !CompiledT
     }
 }
 
-pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
-    const lhs = try runtime.agent_id_map.get(rule.lhs.val.name);
-    const rhs = try runtime.agent_id_map.get(rule.rhs.val.name);
+pub fn compilePairs(runtime: *Runtime, lhs: AST.Object, rhs: AST.Object, pairs: []AST.Node(AST.ActivePair)) !CompiledPairs {
     var list = std.ArrayList(Instruction).empty;
     var scope = Scope.init(runtime.allocator);
     defer scope.deinit();
@@ -244,7 +246,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
     // init the "arguments"
     try list.append(runtime.allocator, load_arguments());
 
-    for (rule.lhs.val.portlist.?) |port_node| {
+    for (lhs.portlist.?) |port_node| {
         const port = port_node.val;
         if (port.portlist) |_| {
             return error.AgentInLhsArgument;
@@ -259,7 +261,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
         }
     }
 
-    for (rule.rhs.val.portlist.?) |port_node| {
+    for (rhs.portlist.?) |port_node| {
         const port = port_node.val;
         if (port.portlist) |_| {
             return error.AgentInRhsArgument;
@@ -274,7 +276,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
         }
     }
 
-    for (rule.pairs) |node_pair| {
+    for (pairs) |node_pair| {
         const pair = node_pair.val;
         const compiledLhs = try compileTerm(runtime, pair.lhs.val, &scope);
         const compiledRhs = try compileTerm(runtime, pair.rhs.val, &scope);
@@ -282,5 +284,30 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
         try list.appendSlice(runtime.allocator, compiledRhs.instrs);
         try list.append(runtime.allocator, Instruction.push(compiledLhs.reg, compiledRhs.reg));
     }
-    return .{ .{ .lhs = lhs, .rhs = rhs }, try list.toOwnedSlice(runtime.allocator) };
+
+    return try list.toOwnedSlice(runtime.allocator);
+}
+
+pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
+    const lhs_id = try runtime.agent_id_map.get(rule.lhs.val.name);
+    const rhs_id = try runtime.agent_id_map.get(rule.rhs.val.name);
+
+    _ = try runtime.agent_arities.get(lhs_id, rule.lhs.val.portlist.?.len);
+    _ = try runtime.agent_arities.get(rhs_id, rule.rhs.val.portlist.?.len);
+
+    var lst = try std.ArrayList(ConditionedRule).initCapacity(runtime.allocator, 1);
+
+    for (rule.rule_exprs) |rule_expr| {
+        const instructions = try compilePairs(runtime, rule.lhs.val, rule.rhs.val, rule_expr.pairs);
+        try lst.append(runtime.allocator, .{
+            // TODO: compile conditions
+            .condition = rule_expr.expr,
+            .instructions = instructions,
+        });
+    }
+
+    return CompiledRule{
+        .{ .lhs = lhs_id, .rhs = rhs_id },
+        try lst.toOwnedSlice(runtime.allocator),
+    };
 }

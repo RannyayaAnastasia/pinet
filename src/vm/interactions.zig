@@ -63,7 +63,20 @@ pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
     }
 }
 
-pub fn agent_agent(vm: *VM, lagent: *Agent, ragent: *Agent) !void {
+// fn unwindAgent()
+
+fn evalCondition(lagent: *const Agent, ragent: *const Agent, conditions: *AST.Node(AST.Expression)) bool {
+    _ = lagent;
+    _ = ragent;
+    _ = conditions;
+    // Compilation of expressions is needed.
+    return false;
+}
+
+pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
+    var lagent = _lagent;
+    var ragent = _ragent;
+
     if (Config.debug_printing.print_interactions) {
         std.debug.print("{s} - {s} interaction\n", .{
             vm.runtime.agent_id_map.findKey(lagent.id).?,
@@ -105,13 +118,23 @@ pub fn agent_agent(vm: *VM, lagent: *Agent, ragent: *Agent) !void {
         return err;
     };
 
-    if (!rule[1]) {
-        // Not swapping
-        try VM.execInstructions(vm, rule[0], lagent, ragent);
-    } else {
-        // Swapping
-        try VM.execInstructions(vm, rule[0], ragent, lagent);
+    if (rule[1]) {
+        std.mem.swap(*Agent, &lagent, &ragent);
     }
+
+    const conditioned_rules = rule[0];
+
+    for (conditioned_rules) |conditioned| {
+        if (conditioned.condition) |condition| {
+            if (evalCondition(lagent, ragent, condition)) {
+                try VM.execInstructions(vm, conditioned.instructions, lagent, ragent);
+            }
+        } else {
+            try VM.execInstructions(vm, conditioned.instructions, lagent, ragent);
+            return;
+        }
+    }
+    return error.UnknownRule;
 }
 
 pub fn evalEquation(vm: *VM, eq: Equation) !void {
