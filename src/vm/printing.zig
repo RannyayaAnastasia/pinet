@@ -33,7 +33,7 @@ pub const BufferedStringStream = struct {
     }
 };
 
-const max_cycle_length = 20;
+const max_cycle_length = 100;
 
 fn getAgentSymbolNested(vm: *const VM, ag: *const Agent, stream: *BufferedStringStream) !void {
     const name = vm.runtime.agent_id_map.findKey(ag.id);

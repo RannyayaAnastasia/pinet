@@ -75,10 +75,10 @@ const SimpleValue = union(enum) {
 
 const EvaluationError = error{
     BadSecondaryValue,
+    WrongArgument,
 };
 
 fn evalCondition(vm: *const VM, lagent: *const Agent, ragent: *const Agent, condition: *Condition) EvaluationError!SimpleValue {
-    // Compilation of expressions is needed.
     switch (condition.*) {
         .atom => |atom| {
             switch (atom) {
@@ -94,7 +94,6 @@ fn evalCondition(vm: *const VM, lagent: *const Agent, ragent: *const Agent, cond
                             if (agent.id == number_id) {
                                 return .{ .special = agent.ports[0].?.special };
                             } else {
-                                std.debug.print("Port wasn't a number\n", .{});
                                 return EvaluationError.BadSecondaryValue;
                             }
                         },
@@ -102,7 +101,6 @@ fn evalCondition(vm: *const VM, lagent: *const Agent, ragent: *const Agent, cond
                             if (name.port) |name_port| {
                                 continue :node_blk name_port;
                             } else {
-                                std.debug.print("Port name was empty\n", .{});
                                 return EvaluationError.BadSecondaryValue;
                             }
                         },
@@ -116,16 +114,33 @@ fn evalCondition(vm: *const VM, lagent: *const Agent, ragent: *const Agent, cond
             const rhs = try evalCondition(vm, lagent, ragent, binary.rhs);
             if (lhs == .special and rhs == .special) {
                 switch (binary.op) {
-                    .eq => {
-                        return SimpleValue{ .bool = lhs.special.integer == rhs.special.integer };
-                    },
-                    else => unreachable,
+                    .eq => return SimpleValue{ .bool = Special.eq(lhs.special, rhs.special) },
+                    .less => return SimpleValue{ .bool = Special.less(lhs.special, rhs.special) },
+                    .leq => return SimpleValue{ .bool = Special.leq(lhs.special, rhs.special) },
+                    .greater => return SimpleValue{ .bool = Special.greater(lhs.special, rhs.special) },
+                    .geq => return SimpleValue{ .bool = Special.geq(lhs.special, rhs.special) },
+                    else => return EvaluationError.WrongArgument,
+                }
+            } else if (lhs == .bool and rhs == .bool) {
+                switch (binary.op) {
+                    .logic_or => return SimpleValue{ .bool = lhs.bool or rhs.bool },
+                    .logic_and => return SimpleValue{ .bool = lhs.bool and rhs.bool },
+                    else => return EvaluationError.WrongArgument,
                 }
             } else {
-                unreachable;
+                return EvaluationError.WrongArgument;
             }
         },
-        .unary_op => unreachable,
+        .unary_op => |unary| {
+            const item = try evalCondition(vm, lagent, ragent, unary.item);
+            if (item.bool) {
+                switch (unary.op) {
+                    .not => return SimpleValue{ .bool = !item.bool },
+                }
+            } else {
+                return EvaluationError.WrongArgument;
+            }
+        },
     }
 
     unreachable;
@@ -187,6 +202,10 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
             const evaluated = evalCondition(vm, lagent, ragent, condition) catch |err| errblk: {
                 switch (err) {
                     EvaluationError.BadSecondaryValue => break :errblk SimpleValue{ .bool = false },
+                    // There probably should be some other error handling in case of bad arguments
+                    // but since many things can go badly, we can simply ignore it?
+                    // TODO: research into more constraining conditions
+                    EvaluationError.WrongArgument => break :errblk SimpleValue{ .bool = false },
                 }
             };
             if (evaluated == .bool and evaluated.bool) {

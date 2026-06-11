@@ -9,7 +9,7 @@ Install zig compiler v0.16, then it's simple:
 ```
 $ zig build
 $ zig build test
-$ zig build run
+$ zig build run -- ./tests/list_sorting.in
 ```
 
 Note that this will compile in debug mode. For release mode use `-Doptimize=ReleaseFast`.
@@ -23,11 +23,11 @@ Pinet is in early development.
 - [x] builtins (dups, erasers) using static virtual tables
 - [x] number support
 - [x] lists support
+- [x] conditionals in rules
 - [ ] args parsing
 - [ ] golden tests using zig build system
 - [ ] optional debug printing
 - [ ] error handling on all stages
-- [ ] conditionals in rules
 - [ ] rules for wildcart agents (`Agent() >< any => ...;`)
 - [ ] research into name chaining (a lot of unnecessary temporary names get created during execution, which leads to increased memory consumption)
 - [ ] multithreading

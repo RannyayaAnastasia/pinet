@@ -38,100 +38,85 @@ pub const Special = union(enum) {
     float: f32,
     integer: i32,
 
-    pub fn add(self: Special, other: Special) Special {
+    pub fn coerceFloat(self: Special) f32 {
         switch (self) {
-            .float => |lfloat| {
-                switch (other) {
-                    .float => |rfloat| {
-                        return Special{ .float = lfloat + rfloat };
-                    },
-                    .integer => |rinteger| {
-                        return Special{ .float = lfloat + @as(f32, @floatFromInt(rinteger)) };
-                    },
-                }
-            },
-            .integer => |linteger| {
-                switch (other) {
-                    .float => |rfloat| {
-                        return Special{ .float = @as(f32, @floatFromInt(linteger)) + rfloat };
-                    },
-                    .integer => |rinteger| {
-                        return Special{ .integer = linteger + rinteger };
-                    },
-                }
-            },
+            .float => |float| return float,
+            .integer => |integer| return @floatFromInt(integer),
+        }
+    }
+
+    pub fn add(self: Special, other: Special) Special {
+        if (self == .integer and other == .integer) {
+            return .{ .integer = self.integer + other.integer };
+        } else {
+            return .{ .float = self.coerceFloat() + other.coerceFloat() };
         }
     }
     pub fn sub(self: Special, other: Special) Special {
-        switch (self) {
-            .float => |lfloat| {
-                switch (other) {
-                    .float => |rfloat| {
-                        return Special{ .float = lfloat - rfloat };
-                    },
-                    .integer => |rinteger| {
-                        return Special{ .float = lfloat - @as(f32, @floatFromInt(rinteger)) };
-                    },
-                }
-            },
-            .integer => |linteger| {
-                switch (other) {
-                    .float => |rfloat| {
-                        return Special{ .float = @as(f32, @floatFromInt(linteger)) - rfloat };
-                    },
-                    .integer => |rinteger| {
-                        return Special{ .integer = linteger - rinteger };
-                    },
-                }
-            },
+        if (self == .integer and other == .integer) {
+            return .{ .integer = self.integer - other.integer };
+        } else {
+            return .{ .float = self.coerceFloat() - other.coerceFloat() };
         }
     }
     pub fn mul(self: Special, other: Special) Special {
-        switch (self) {
-            .float => |lfloat| {
-                switch (other) {
-                    .float => |rfloat| {
-                        return Special{ .float = lfloat * rfloat };
-                    },
-                    .integer => |rinteger| {
-                        return Special{ .float = lfloat * @as(f32, @floatFromInt(rinteger)) };
-                    },
-                }
-            },
-            .integer => |linteger| {
-                switch (other) {
-                    .float => |rfloat| {
-                        return Special{ .float = @as(f32, @floatFromInt(linteger)) * rfloat };
-                    },
-                    .integer => |rinteger| {
-                        return Special{ .integer = linteger * rinteger };
-                    },
-                }
-            },
+        if (self == .integer and other == .integer) {
+            return .{ .integer = self.integer * other.integer };
+        } else {
+            return .{ .float = self.coerceFloat() * other.coerceFloat() };
         }
     }
     pub fn div(self: Special, other: Special) Special {
-        switch (self) {
-            .float => |lfloat| {
-                switch (other) {
-                    .float => |rfloat| {
-                        return Special{ .float = lfloat / rfloat };
-                    },
-                    .integer => |rinteger| {
-                        return Special{ .float = lfloat / @as(f32, @floatFromInt(rinteger)) };
-                    },
-                }
-            },
-            .integer => |linteger| {
-                switch (other) {
-                    .float => |rfloat| {
-                        return Special{ .float = @as(f32, @floatFromInt(linteger)) / rfloat };
-                    },
-                    .integer => |rinteger| {
-                        return Special{ .integer = @divFloor(linteger, rinteger) };
-                    },
-                }
-            },
+        if (self == .integer and other == .integer) {
+            return .{ .integer = @divFloor(self.integer, other.integer) };
+        } else {
+            return .{ .float = self.coerceFloat() / other.coerceFloat() };
+        }
+    }
+
+    pub fn eq(self: Special, other: Special) bool {
+        if (self == .integer and other == .integer) {
+            return self.integer == other.integer;
+        } else {
+            // no guarantees
+            return self.coerceFloat() == other.coerceFloat();
+        }
+    }
+    pub fn neq(self: Special, other: Special) bool {
+        if (self == .integer and other == .integer) {
+            return self.integer != other.integer;
+        } else {
+            // no guarantees
+            return self.coerceFloat() != other.coerceFloat();
+        }
+    }
+
+    pub fn less(self: Special, other: Special) bool {
+        if (self == .integer and other == .integer) {
+            return self.integer < other.integer;
+        } else {
+            return self.coerceFloat() < other.coerceFloat();
+        }
+    }
+    pub fn leq(self: Special, other: Special) bool {
+        if (self == .integer and other == .integer) {
+            return self.integer <= other.integer;
+        } else {
+            return self.coerceFloat() <= other.coerceFloat();
+        }
+    }
+    pub fn greater(self: Special, other: Special) bool {
+        if (self == .integer and other == .integer) {
+            return self.integer > other.integer;
+        } else {
+            return self.coerceFloat() > other.coerceFloat();
+        }
+    }
+    pub fn geq(self: Special, other: Special) bool {
+        if (self == .integer and other == .integer) {
+            return self.integer >= other.integer;
+        } else {
+            return self.coerceFloat() >= other.coerceFloat();
         }
     }
 };
