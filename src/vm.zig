@@ -270,3 +270,9 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
         }
     }
 }
+
+test "test sub-modules" {
+    _ = .{
+        Types,
+    };
+}

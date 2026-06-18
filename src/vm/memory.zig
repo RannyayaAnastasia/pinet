@@ -4,7 +4,7 @@ const Config = @import("../vm.zig").Config;
 
 pub fn Heap(comptime T: type) type {
     return struct {
-        const Optional = union(enum) {
+        pub const Optional = union(enum) {
             free: void,
             item: T,
         };

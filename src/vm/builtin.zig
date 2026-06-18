@@ -284,99 +284,65 @@ pub fn tuple(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
 }
 
 pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
-    const adder_id = BuiltinNameMap.get("Add").?;
-    const mult_id = BuiltinNameMap.get("Mul").?;
-    const div_id = BuiltinNameMap.get("Div").?;
-    const sub_id = BuiltinNameMap.get("Sub").?;
+    const adder_id = comptime BuiltinNameMap.get("Add").?;
+    const mult_id = comptime BuiltinNameMap.get("Mul").?;
+    const div_id = comptime BuiltinNameMap.get("Div").?;
+    const sub_id = comptime BuiltinNameMap.get("Sub").?;
     if (other.id != adder_id and other.id != mult_id and other.id != div_id and other.id != sub_id) return BuiltinAgentError.NoRuleSpecified;
 
     const self_special = self.ports[0].?.special;
 
     const getSecondValue = struct {
-        pub fn getSecondValue(val: Value) BuiltinAgentError!Special {
-            const err = BuiltinAgentError.BadSecondaryArgument;
-            port_blk: switch (val) {
+        pub fn getSecondValue(val: Value) ?Special {
+            switch (val) {
                 .name => |name| {
-                    defer VM.Heap(Name).freeOne(name);
-                    continue :port_blk name.port orelse return err;
+                    if (name.unwind()) |agent| {
+                        name.unchain();
+                        VM.Heap(Name).freeOne(name);
+                        defer VM.Heap(Agent).freeOne(agent);
+                        return agent.ports[0].?.special;
+                    } else {
+                        return null;
+                    }
                 },
-                .agent => |ag| {
-                    defer VM.Heap(Agent).freeOne(ag);
-                    // port zero because it is assumed to be
-                    // number agent
-                    continue :port_blk ag.ports[0] orelse return err;
+                .agent => |agent| {
+                    return getSecondValue(agent.ports[0].?);
                 },
-                .special => |special| {
-                    return special;
-                },
+                .special => |special| return special,
             }
-            unreachable;
         }
     }.getSecondValue;
 
-    if (other.id == adder_id) {
-        defer VM.Heap(Agent).freeOne(self);
-        defer VM.Heap(Agent).freeOne(other);
-
-        const sv = try getSecondValue(other.ports[1].?);
-
-        const ret = Special.add(self_special, sv);
-        const ret_ag = try vm.createAgent(self.id);
-        ret_ag.ports[0] = Value{ .special = ret };
-
+    const sv = getSecondValue(other.ports[1].?) orelse {
+        // We switch places: self with secondary argument port
+        const port = other.ports[1].?;
+        other.ports[1] = .{ .agent = self };
         const eq = Equation{
-            .lhs = other.ports[0].?,
-            .rhs = .{ .agent = ret_ag },
+            .lhs = .{ .agent = other },
+            .rhs = port,
         };
-        try vm.pushUrgent(eq);
-    } else if (other.id == mult_id) {
-        defer VM.Heap(Agent).freeOne(self);
-        defer VM.Heap(Agent).freeOne(other);
+        try vm.pushEquation(eq);
+        return;
+    };
+    defer VM.Heap(Agent).freeOne(self);
+    defer VM.Heap(Agent).freeOne(other);
 
-        const sv = try getSecondValue(other.ports[1].?);
+    const ret = switch (other.id) {
+        adder_id => Special.add(self_special, sv),
+        mult_id => Special.mul(self_special, sv),
+        div_id => Special.div(self_special, sv),
+        sub_id => Special.sub(self_special, sv),
+        else => unreachable,
+    };
 
-        const ret = Special.mul(self_special, sv);
-        const ret_ag = try vm.createAgent(self.id);
-        ret_ag.ports[0] = Value{ .special = ret };
+    const ret_ag = try vm.createAgent(self.id);
+    ret_ag.ports[0] = Value{ .special = ret };
 
-        const eq = Equation{
-            .lhs = other.ports[0].?,
-            .rhs = .{ .agent = ret_ag },
-        };
-        try vm.pushUrgent(eq);
-    } else if (other.id == div_id) {
-        defer VM.Heap(Agent).freeOne(self);
-        defer VM.Heap(Agent).freeOne(other);
-
-        const sv = try getSecondValue(other.ports[1].?);
-
-        const ret = Special.div(self_special, sv);
-        const ret_ag = try vm.createAgent(self.id);
-        ret_ag.ports[0] = Value{ .special = ret };
-
-        const eq = Equation{
-            .lhs = other.ports[0].?,
-            .rhs = .{ .agent = ret_ag },
-        };
-        try vm.pushUrgent(eq);
-    } else if (other.id == sub_id) {
-        defer VM.Heap(Agent).freeOne(self);
-        defer VM.Heap(Agent).freeOne(other);
-
-        const sv = try getSecondValue(other.ports[1].?);
-
-        const ret = Special.sub(self_special, sv);
-        const ret_ag = try vm.createAgent(self.id);
-        ret_ag.ports[0] = Value{ .special = ret };
-
-        const eq = Equation{
-            .lhs = other.ports[0].?,
-            .rhs = .{ .agent = ret_ag },
-        };
-        try vm.pushUrgent(eq);
-    } else {
-        return BuiltinAgentError.NoRuleSpecified;
-    }
+    const eq = Equation{
+        .lhs = other.ports[0].?,
+        .rhs = .{ .agent = ret_ag },
+    };
+    try vm.pushUrgent(eq);
 }
 
 pub fn make_random_list(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {

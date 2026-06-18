@@ -1,5 +1,5 @@
 const std = @import("std");
-const Heap = @import("../vm.zig").Heap;
+const Heap = @import("memory.zig").Heap;
 
 const number_of_ports = 10;
 
@@ -27,6 +27,21 @@ pub const Name = struct {
         }
         name.port = node.port;
         Heap(Name).freeOne(node);
+    }
+
+    // This doesn't clear the memory
+    pub fn unwind(name: *Name) ?*Agent {
+        var node = name;
+        while (node.port) |port| {
+            switch (port) {
+                .name => |new_name| {
+                    node = new_name;
+                },
+                .agent => |agent| return agent,
+                else => unreachable,
+            }
+        }
+        return null;
     }
 
     pub fn is_open(name: *Name) bool {
@@ -162,3 +177,26 @@ pub const Equation = struct {
     lhs: Value,
     rhs: Value,
 };
+
+test "unchain" {
+    const gpa = std.testing.allocator;
+    var name_heap: Heap(Name) = try .init(gpa, 20);
+    var agent_heap: Heap(Agent) = try .init(gpa, 20);
+    defer name_heap.deinit(gpa);
+    defer agent_heap.deinit(gpa);
+    // a -> b -> c -> Agent() ===> a -> Agent()
+
+    const a = try name_heap.getOne();
+    const b = try name_heap.getOne();
+    const c = try name_heap.getOne();
+    const agent = try agent_heap.getOne();
+    agent.* = .{ .id = 0, .ports = @splat(null) };
+    a.port = .{ .name = b };
+    b.port = .{ .name = c };
+    c.port = .{ .agent = agent };
+    a.unchain();
+    // b and c get cleaned, a -> agent
+    try std.testing.expectEqual(.free, @as(*Heap(Name).Optional, @fieldParentPtr("item", b)).*);
+    try std.testing.expectEqual(.free, @as(*Heap(Name).Optional, @fieldParentPtr("item", c)).*);
+    try std.testing.expectEqual(a.port.?.agent, agent);
+}

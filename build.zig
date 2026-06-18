@@ -30,11 +30,6 @@ pub fn build(b: *std.Build) void {
     const mod = b.addModule("pinet", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
-        .imports = &.{
-            // .{ .name = "lexer", .module = lexer_mod },
-            // .{ .name = "parser", .module = parser_mod },
-            // .{ .name = "vm", .module = vm_mod },
-        },
     });
 
     const exe = b.addExecutable(.{
@@ -70,7 +65,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    const run_step = b.step("run", "Run the app");
+    const run_step = b.step("run", "Run pinet");
 
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
