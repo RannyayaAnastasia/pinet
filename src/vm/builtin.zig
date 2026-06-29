@@ -112,43 +112,45 @@ pub fn unbuiltin(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
     return BuiltinAgentError.NoRuleSpecified;
 }
 
-pub fn eraser(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
+/// Module of functions used by the builtin eraser
+pub const Eraser = struct {
+    fn createEraser(vm: *VM) !*Agent {
+        return vm.createAgent(BuiltinNameMap.get("Eraser").?);
+    }
+
+    pub fn erase(vm: *VM, agent: *Agent) !void {
+        defer VM.Heap(Agent).freeOne(agent);
+        const ag_arity = vm.runtime.agent_arities.map.get(agent.id).?;
+        for (0..ag_arity) |idx| {
+            const port = agent.ports[idx].?;
+            port_switch: switch (port) {
+                .name => |name| {
+                    if (name.port) |name_port| {
+                        defer VM.Heap(Name).freeOne(name);
+                        continue :port_switch name_port;
+                    } else {
+                        // If the name is free yet, create eraser on its port
+                        name.port = Value{ .agent = try createEraser(vm) };
+                    }
+                },
+                .agent => |_agent| {
+                    try erase(vm, _agent);
+                },
+                .special => {},
+            }
+        }
+    }
+};
+
+pub fn eraser(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
     defer VM.Heap(Agent).freeOne(self);
 
     if (VM.Config.debug_printing.print_interactions) {
         std.debug.print("Freeing ", .{});
-        try Printing.tryPrint(vm, Value{ .agent = ag });
+        try Printing.tryPrint(vm, Value{ .agent = other });
     }
-    // Anonymous function
-    const erase = struct {
-        pub fn createEraser(_vm: *VM) !*Agent {
-            return _vm.createAgent(BuiltinNameMap.get("Eraser").?);
-        }
-        pub fn erase(_vm: *VM, agent: *Agent) !void {
-            defer VM.Heap(Agent).freeOne(agent);
-            const ag_arity = _vm.runtime.agent_arities.map.get(agent.id).?;
-            for (0..ag_arity) |idx| {
-                const port = agent.ports[idx].?;
-                port_switch: switch (port) {
-                    .name => |name| {
-                        if (name.port) |name_port| {
-                            defer VM.Heap(Name).freeOne(name);
-                            continue :port_switch name_port;
-                        } else {
-                            // If the name is free yet, create eraser on its port
-                            name.port = Value{ .agent = try createEraser(_vm) };
-                        }
-                    },
-                    .agent => |_agent| {
-                        try erase(_vm, _agent);
-                    },
-                    .special => {},
-                }
-            }
-        }
-    }.erase;
 
-    try erase(vm, ag);
+    try Eraser.erase(vm, other);
 }
 
 pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {

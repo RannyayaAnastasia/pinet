@@ -15,8 +15,12 @@ pub const Agent = struct {
 pub const Name = struct {
     port: ?Value,
 
-    // Unchaining is not used anywhere
-    // As it brings instability
+    /// This procedure makes it so that the chain starting with
+    /// "name" (argument) is shortened to a direct link (or null in case there is no agent).
+    /// Intermediate names are freed.
+    ///
+    /// Example: a -> b -> c -> Agent() >> unchain(a); >> a -> Agent()
+    ///          a -> b -> c -> null    >> unchain(a); >> a -> null
     pub fn unchain(name: *Name) void {
         var node = if ((name.port orelse return) == .name) name.port.?.name else return;
         while (node.port) |port| {
@@ -29,7 +33,9 @@ pub const Name = struct {
         Heap(Name).freeOne(node);
     }
 
-    // This doesn't clear the memory
+    /// This function is used to check if the name chain
+    /// contains an agent at the end or not
+    /// without changing the chain
     pub fn unwind(name: *Name) ?*Agent {
         var node = name;
         while (node.port) |port| {

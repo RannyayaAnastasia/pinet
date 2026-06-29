@@ -226,7 +226,21 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 }
             },
             .free_stmt => |names| {
-                _ = names;
+                for (names) |wrapped_name| {
+                    const name = wrapped_name.val;
+                    if (vm.runtime.associated_names.get(name)) |maybe_wire| {
+                        defer _ = vm.runtime.associated_names.remove(name);
+                        if (maybe_wire) |wire| {
+                            wire.unchain();
+                            if (wire.port) |port| {
+                                // of course, there shouldn't be anything other than an agent
+                                try Builtin.Eraser.erase(vm, port.agent);
+                            }
+                        }
+                    } else {
+                        std.debug.print("Trying to free non-existent name {s}\n", .{name});
+                    }
+                }
             },
             .use_stmt => |import_path| {
                 const final_import_path = if (std.fs.path.isAbsolute(import_path)) try vm.gpa.dupe(u8, import_path) else blk: {

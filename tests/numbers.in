@@ -2,8 +2,8 @@
 a ~ 123;
 b ~ 321;
 
-Add(r1, a) ~ b;
-r1;
+Add(r, a) ~ b;
+r; free r;
 
 Add(r, x) >< Cons(elem, tail) =>
     Add(w, x) ~ elem,
@@ -18,9 +18,9 @@ lst ~ [1, c, 100.1];
 
 g ~ 6;
 
-Add(r2, 0) ~ lst;
+Add(r, 0) ~ lst;
 
-r2;
+r; free r;
 
 Fib'(r, p1, p2) >< Z() =>
     r ~ p2,
@@ -37,8 +37,8 @@ Fib(r) >< S(x) =>
 Fib(r) >< Z() =>
     Fib'(r, 1, 0) ~ Z();
 
-Fib(r3) ~ S(S(S(S(S(S(S(S(Z()))))))));
-r3;
+Fib(r) ~ S(S(S(S(S(S(S(S(Z()))))))));
+r; free r;
 
 
 // Weird nets example
@@ -47,7 +47,7 @@ F(a, b) >< Number(x) =>
   Add(a, 1) ~ x1,
   Add(b, 2) ~ x2;
 
-F(Add(r4, b1), b1) ~ Number(3);
+F(Add(r, b1), b1) ~ Number(3);
 
 // Should print: "#number(9)"
-r4;
+r; free r;
