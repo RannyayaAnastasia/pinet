@@ -16,13 +16,7 @@ const Equation = Types.Equation;
 const Special = Types.Special;
 
 pub fn name_name(vm: *VM, lname: *Name, rname: *Name) !void {
-    // I'm sure this is very unintuitive,
-    // but fixing would require some cognitive effort.
-    // For some reason name-name logic is very error prone.
-    // What even is a "name"? A "wire"? No, because it is one way only.
-    // But sometimes it is a wire. And when two wires interact?
-    // They create cycles. And what happens after cycles?
-    // Everything breaks.
+    // TODO: optimise name chaining
 
     if (Config.debug_printing.print_interactions) {
         std.debug.print("name - name interaction\n", .{});
@@ -63,8 +57,6 @@ pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
         name.port = Value{ .agent = agent };
     }
 }
-
-// fn unwindAgent()
 
 const Condition = Instruction.CompiledCondition;
 

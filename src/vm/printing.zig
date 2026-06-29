@@ -1,3 +1,4 @@
+//! This module encapsulates prints to stdout and whatever.
 const std = @import("std");
 
 const VM = @import("../vm.zig");

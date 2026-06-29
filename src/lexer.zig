@@ -436,17 +436,20 @@ pub const Tokenizer = struct {
     }
 };
 
-pub fn tokenize(allocator: std.mem.Allocator, contents: [:0]const u8) ![]Token {
+/// Simply tokenizes the file contents using std.ArrayList.
+/// The caller owns the tokens.
+/// Tokens do not own anything.
+pub fn tokenize(gpa: std.mem.Allocator, contents: [:0]const u8) error{OutOfMemory}![]Token {
     var arr: std.ArrayList(Token) = std.ArrayList(Token).empty;
     var tokenizer = Tokenizer.init(contents);
     var cur = tokenizer.next();
     while (cur.tag != .eof) : (cur = tokenizer.next()) {
         if (cur.tag != .commentline) {
-            try arr.append(allocator, cur);
+            try arr.append(gpa, cur);
         }
     }
-    try arr.append(allocator, cur);
-    return arr.toOwnedSlice(allocator);
+    try arr.append(gpa, cur);
+    return try arr.toOwnedSlice(gpa);
 }
 
 const TokenizeTestError = error{

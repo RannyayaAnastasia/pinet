@@ -1,3 +1,5 @@
+//! Struct containing parser implementation.
+//! It owns all the ast nodes created inside its arena.
 const std = @import("std");
 const Lexer = @import("lexer.zig");
 const AST = @import("ast.zig");
@@ -31,10 +33,10 @@ const ParserError = struct {
     /// Parser's arena owns the message.
     pub fn messageLine(self: *const ParserError, parser: *Parser) ![]const u8 {
         const loc = parser.tokens[self.pos].loc.start;
-        const msg = try self.message(parser.allocator);
-        defer parser.allocator.free(msg);
+        const msg = try self.message(parser.arena);
+        defer parser.arena.free(msg);
 
-        return std.fmt.allocPrint(parser.allocator, "{}:{} {s}", .{ loc.line, loc.ch, msg });
+        return std.fmt.allocPrint(parser.arena, "{}:{} {s}", .{ loc.line, loc.ch, msg });
     }
 };
 
@@ -44,21 +46,28 @@ pub const Error = error{
 
 tokens: []const Token,
 index: usize,
-arena: *std.heap.ArenaAllocator,
-allocator: std.mem.Allocator,
-
+_arena: *std.heap.ArenaAllocator,
+/// Arena should not be used for containing intermediate
+/// lists. Use gpa for intermediate, then remap the date with arena.
+arena: std.mem.Allocator,
+/// Should not be used to allocate nodes. Only for intermediate lists
+/// (performance reasons).
+intermediate_list_allocator: std.mem.Allocator,
 err: ?ParserError,
 
 reached_eof: bool,
 
-pub fn init(tokens: []const Token, gpa: std.mem.Allocator) !Parser {
+/// Page allocator is preferred for the arenas. Gpa is used to create the arena in the
+/// heap and as a intermediate_list_allocator for performance.
+pub fn init(tokens: []const Token, gpa: std.mem.Allocator, page: std.mem.Allocator) !Parser {
     const arena = try gpa.create(std.heap.ArenaAllocator);
-    arena.* = std.heap.ArenaAllocator.init(gpa);
+    arena.* = std.heap.ArenaAllocator.init(page);
     return .{
         .tokens = tokens,
         .index = 0,
-        .arena = arena,
-        .allocator = arena.allocator(),
+        ._arena = arena,
+        .arena = arena.allocator(),
+        .intermediate_list_allocator = gpa,
         .reached_eof = false,
         .err = null,
     };
@@ -72,8 +81,8 @@ fn unexpected_token(self: *Parser, expected: Token.Tag, actual: Token.Tag) void 
 }
 
 pub fn deinit(self: *Parser, gpa: std.mem.Allocator) void {
-    self.arena.deinit();
-    gpa.destroy(self.arena);
+    self._arena.deinit();
+    gpa.destroy(self._arena);
 }
 
 fn peek(self: *Parser) Token {
@@ -104,7 +113,7 @@ fn getTokenInfixBP(self: *Parser, tag: Token.Tag) !struct { i32, i32 } {
 }
 
 fn parseUnary(self: *Parser) !*AST.Node(AST.Expression) {
-    const expr = try self.allocator.create(AST.Node(AST.Expression));
+    const expr = try self.arena.create(AST.Node(AST.Expression));
     expr.tslice.start = @intCast(self.index);
     defer expr.tslice.end = @intCast(self.index);
     expr.val = switch (self.peek().tag) {
@@ -142,7 +151,7 @@ fn parseExpression(self: *Parser, min_bp: i32) !*AST.Node(AST.Expression) {
         }
         _ = self.advance();
         const rhs = try self.parseExpression(rbp);
-        const new_lhs = try self.allocator.create(AST.Node(AST.Expression));
+        const new_lhs = try self.arena.create(AST.Node(AST.Expression));
         new_lhs.* = .{
             .tslice = .{
                 .start = lhs.tslice.start,
@@ -161,14 +170,14 @@ fn parseExpression(self: *Parser, min_bp: i32) !*AST.Node(AST.Expression) {
     return lhs;
 }
 
-fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing }![]AST.Node(AST.Object) {
+fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing, TupleTooBig }![]AST.Node(AST.Object) {
     var list = std.ArrayList(AST.Node(AST.Object)).empty;
 
     while (self.peek().tag != .rparen) {
         switch (self.peek().tag) {
             .identifier, .lparen, .numeric_literal => {
                 const obj = try self.parseObject();
-                try list.append(self.allocator, obj);
+                try list.append(self.intermediate_list_allocator, obj);
                 if (self.peek().tag == .comma) {
                     _ = self.advance();
                 } else if (self.peek().tag != .rparen) {
@@ -188,10 +197,15 @@ fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsi
             },
         }
     }
-    return try list.toOwnedSlice(self.allocator);
+    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
+    defer self.intermediate_list_allocator.free(owned);
+    const result = try self.arena.dupe(AST.Node(AST.Object), owned);
+    return result;
 }
 
-fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing }!AST.Node(AST.Object) {
+fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing, TupleTooBig }!AST.Node(AST.Object) {
+    const cons_arity = 2;
+
     const tentry = self.peek();
     var ret: AST.Node(AST.Object) = .{
         .val = AST.Object{
@@ -206,13 +220,13 @@ fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringPars
     defer ret.tslice.end = @intCast(self.index - 1);
     if (tentry.tag == .rbracket) {
         ret.val.name = AST.nil_list_ident;
-        ret.val.portlist = try self.allocator.alloc(AST.Node(AST.Object), 0);
+        ret.val.portlist = &.{};
         _ = self.advance();
         return ret;
     }
     ret.val = .{
         .name = AST.cons_list_ident,
-        .portlist = try self.allocator.alloc(AST.Node(AST.Object), 2),
+        .portlist = try self.arena.alloc(AST.Node(AST.Object), cons_arity),
     };
     ret.val.portlist.?[0] = try self.parseObject();
     var node = ret;
@@ -221,7 +235,7 @@ fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringPars
         var new_node: AST.Node(AST.Object) = .{
             .val = AST.Object{
                 .name = AST.cons_list_ident,
-                .portlist = try self.allocator.alloc(AST.Node(AST.Object), 2),
+                .portlist = try self.arena.alloc(AST.Node(AST.Object), cons_arity),
             },
             .tslice = .{
                 .start = @intCast(self.index),
@@ -237,7 +251,7 @@ fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringPars
     node.val.portlist.?[1] = AST.Node(AST.Object){
         .val = .{
             .name = AST.nil_list_ident,
-            .portlist = try self.allocator.alloc(AST.Node(AST.Object), 0),
+            .portlist = &.{},
         },
         .tslice = .{
             .start = @intCast(self.index),
@@ -270,7 +284,7 @@ fn parseObject(self: *Parser) !AST.Node(AST.Object) {
         },
         .numeric_literal => {
             ret.val.name = AST.number_special_ident;
-            const objlist = try self.allocator.alloc(AST.Node(AST.Object), 1);
+            const objlist = try self.arena.alloc(AST.Node(AST.Object), 1);
             objlist[0] = AST.Node(AST.Object){
                 .val = AST.Object{
                     .name = tentry.content.?,
@@ -324,8 +338,17 @@ fn parseObject(self: *Parser) !AST.Node(AST.Object) {
     return ret;
 }
 
-fn getTupleName(self: *Parser, size: usize) ![]u8 {
-    return std.fmt.allocPrint(self.allocator, "Tuple{}", .{size});
+fn getTupleName(self: *Parser, size: usize) ![]const u8 {
+    _ = self;
+    const max_tuple: usize = 10;
+    const kvs = comptime kvs: {
+        var list: [max_tuple + 1][]const u8 = undefined;
+        for (&list, 0..) |*val, idx| {
+            val.* = std.fmt.comptimePrint("Tuple{}", .{idx});
+        }
+        break :kvs list;
+    };
+    return if (size < max_tuple + 1) kvs[size] else error.TupleTooBig;
 }
 
 /// Should be invoked when checking the peeking token, not advanced.
@@ -339,7 +362,7 @@ fn expectTag(self: *Parser, expected: Token.Tag, actual: Token.Tag) Error!void {
 fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
     var list = std.ArrayList(AST.Node(AST.ActivePair)).empty;
     if (self.peek().tag == .semicolon or self.peek().tag == .pipe) {
-        return list.items;
+        return &.{};
     }
 
     objtoken: switch (self.peek().tag) {
@@ -350,7 +373,7 @@ fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
             const rhs = try self.parseObject();
             const pair = AST.ActivePair{ .lhs = lhs, .rhs = rhs };
             const tslice = AST.TokenSlice{ .start = lhs.tslice.start, .end = rhs.tslice.end };
-            try list.append(self.allocator, .{ .val = pair, .tslice = tslice });
+            try list.append(self.intermediate_list_allocator, .{ .val = pair, .tslice = tslice });
             if (self.peek().tag == .comma) {
                 _ = self.advance();
                 continue :objtoken self.peek().tag;
@@ -361,7 +384,10 @@ fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
             return Error.ErrorDuringParsing;
         },
     }
-    return list.toOwnedSlice(self.allocator);
+    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
+    defer self.intermediate_list_allocator.free(owned);
+    const result = try self.arena.dupe(AST.Node(AST.ActivePair), owned);
+    return result;
 }
 
 pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
@@ -372,7 +398,7 @@ pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
     };
     const tentry = self.peek().tag;
 
-    var lst = try std.ArrayList(AST.RuleExpression).initCapacity(self.allocator, 1);
+    var list = try std.ArrayList(AST.RuleExpression).initCapacity(self.intermediate_list_allocator, 1);
 
     switch (tentry) {
         .fatrightarrow => {
@@ -381,7 +407,7 @@ pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
                 .expr = null,
                 .pairs = try self.parsePairs(),
             };
-            try lst.append(self.allocator, rule_expr);
+            try list.append(self.intermediate_list_allocator, rule_expr);
         },
         .pipe => {
             while (self.peek().tag == .pipe) {
@@ -395,7 +421,7 @@ pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
                     .expr = expr,
                     .pairs = try self.parsePairs(),
                 };
-                try lst.append(self.allocator, rule_expr);
+                try list.append(self.intermediate_list_allocator, rule_expr);
             }
         },
         else => {
@@ -406,7 +432,10 @@ pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
             return Error.ErrorDuringParsing;
         },
     }
-    ret.rule_exprs = try lst.toOwnedSlice(self.allocator);
+    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
+    defer self.intermediate_list_allocator.free(owned);
+    const result = try self.arena.dupe(AST.RuleExpression, owned);
+    ret.rule_exprs = result;
     return ret;
 }
 
@@ -474,14 +503,17 @@ pub fn parseStmt(self: *Parser) !?AST.Node(AST.Statement) {
 }
 
 pub fn parseProgram(self: *Parser) !AST.Program {
-    var list = try std.ArrayList(AST.Node(AST.Statement)).initCapacity(self.allocator, 20);
+    var list = std.ArrayList(AST.Node(AST.Statement)).empty;
     var maybe_stmt = try self.parseStmt();
     while (!self.reached_eof) : (maybe_stmt = try self.parseStmt()) {
         if (maybe_stmt) |stmt| {
-            try list.append(self.allocator, stmt);
+            try list.append(self.intermediate_list_allocator, stmt);
         }
     }
-    return .{ .statements = try list.toOwnedSlice(self.allocator) };
+    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
+    defer self.intermediate_list_allocator.free(owned);
+    const result = try self.arena.dupe(AST.Node(AST.Statement), owned);
+    return .{ .statements = result };
 }
 
 fn parseNameList(self: *Parser) ![]AST.Name {
@@ -491,12 +523,15 @@ fn parseNameList(self: *Parser) ![]AST.Name {
         self.unexpected_token(.identifier, tentry.tag);
     }
     var list = std.ArrayList(AST.Name).empty;
-    try list.append(self.allocator, .{ .val = tentry.content.? });
+    try list.append(self.intermediate_list_allocator, .{ .val = tentry.content.? });
     while (self.peek().tag == .identifier) {
         const t = self.advance();
-        try list.append(self.allocator, .{ .val = t.content.? });
+        try list.append(self.intermediate_list_allocator, .{ .val = t.content.? });
     }
-    return list.toOwnedSlice(self.allocator);
+    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
+    defer self.intermediate_list_allocator.free(owned);
+    const result = try self.arena.dupe(AST.Name, owned);
+    return result;
 }
 
 test "rule stmt" {

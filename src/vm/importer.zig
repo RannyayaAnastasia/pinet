@@ -43,7 +43,7 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
 
     const tokens = try Lexer.tokenize(self.gpa, contents);
     defer self.gpa.free(tokens);
-    var parser = try Parser.init(tokens, self.gpa);
+    var parser = try Parser.init(tokens, self.gpa, self.gpa);
     defer parser.deinit(self.gpa);
 
     const program = parser.parseProgram() catch |err| {

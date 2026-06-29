@@ -18,9 +18,6 @@ pub const Name = struct {
     val: []const u8,
 };
 
-// (Name or Agent) or Agent(...)
-// Think whether all agents should be in form Z(...)
-// or to allow Z without ()
 pub const Object = struct {
     name: []const u8,
     portlist: ?[]Node(Object),

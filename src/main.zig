@@ -58,7 +58,7 @@ pub fn main(init: std.process.Init) !void {
 
     const tokens = try pinet.Lexer.tokenize(gpa, contents);
     defer gpa.free(tokens);
-    var parser = try pinet.Parser.init(tokens, gpa);
+    var parser = try pinet.Parser.init(tokens, gpa, std.heap.page_allocator);
     defer parser.deinit(gpa);
     const program = parser.parseProgram() catch |err| {
         if (err == error.ErrorDuringParsing) {
@@ -67,7 +67,7 @@ pub fn main(init: std.process.Init) !void {
         }
         return err;
     };
-    var runtime = try pinet.Runtime.init(gpa, filepath);
+    var runtime = try pinet.Runtime.init(gpa, std.heap.page_allocator, filepath);
     defer runtime.deinit(gpa);
     var vm = try pinet.VM.init(gpa, &runtime);
     defer vm.deinit();

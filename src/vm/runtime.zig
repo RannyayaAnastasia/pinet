@@ -1,10 +1,12 @@
+//! VM.Runtime is a fat struct, a pointer to which is passed
+//! around anywhere there is something shared in the vm.
+//!
+//! Replaces ugly(?) global variables.
 const std = @import("std");
 const Types = @import("types.zig");
 const Instruction = @import("instruction.zig");
 const Builtin = @import("builtin.zig");
 const Importer = @import("importer.zig");
-// Runtime module
-// for anything shared in the vm
 
 const Config = @import("../vm.zig").Config;
 
@@ -95,7 +97,7 @@ pub const RuleSearchResult = struct {
         normal,
         swap,
 
-        // wildcard_lhs means that lhs is defined and rhs is a wildcard
+        /// wildcard_lhs means that lhs is defined and rhs is a wildcard
         wildcard_lhs,
         wildcard_rhs,
     };
@@ -127,6 +129,7 @@ io: std.Io,
 threaded: *std.Io.Threaded,
 arena: *std.heap.ArenaAllocator,
 allocator: std.mem.Allocator,
+
 // Potentially for threaded
 equation_queue: std.Io.Queue(Equation),
 // for singlethreaded prototype
@@ -136,13 +139,15 @@ equation_deque: std.Deque(Equation),
 urgent_deque: std.Deque(Equation),
 rule_table: RuleTable,
 wildcard_table: std.AutoHashMap(Agent.Id, []ConditionedRule),
+
+/// Importer contains the gpa, provided in .init(...)
 importer: Importer,
 
 main_file_path: []const u8,
 
-pub fn init(gpa: std.mem.Allocator, main_file_path: []const u8) !Self {
+pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file_path: []const u8) !Self {
     const arena = try gpa.create(std.heap.ArenaAllocator);
-    arena.* = std.heap.ArenaAllocator.init(gpa);
+    arena.* = std.heap.ArenaAllocator.init(page);
 
     const threaded = try gpa.create(std.Io.Threaded);
     threaded.* = std.Io.Threaded.init(gpa, .{});

@@ -1,3 +1,7 @@
+//! Virtual machine is a thing that executes interactions.
+//!
+//! Anything shared between virtual machines is in the
+//! Runtime module.
 const std = @import("std");
 const AST = @import("ast.zig");
 const Lexer = @import("lexer.zig");
@@ -22,6 +26,7 @@ const Self = VirtualMachine;
 
 const number_of_registers = 100;
 
+// the heaps should be in the runtime!
 name_heap: Heap(Name),
 agent_heap: Heap(Agent),
 registers: [number_of_registers]Value,

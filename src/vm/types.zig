@@ -1,3 +1,4 @@
+//! Module that contains basic types for interaction nets logic.
 const std = @import("std");
 const Heap = @import("memory.zig").Heap;
 
