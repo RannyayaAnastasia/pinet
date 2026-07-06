@@ -4,7 +4,7 @@ const Config = @import("../vm.zig").Config;
 
 pub const HeapKind = enum { basic };
 
-pub fn Heap(comptime V: type) type {
+pub fn Heap(comptime T: type) type {
     return struct {
         const Self = @This();
         pub const Error = std.mem.Allocator.Error;
@@ -13,16 +13,16 @@ pub fn Heap(comptime V: type) type {
         vtable: *const VTable,
 
         pub const VTable = struct {
-            allocOne: *const fn (*anyopaque) Error!*V,
-            freeOne: *const fn (*anyopaque, elem: *V) void,
+            allocOne: *const fn (*anyopaque) Error!*T,
+            freeOne: *const fn (*anyopaque, elem: *T) void,
             printUsage: *const fn (*anyopaque) void,
         };
 
-        pub inline fn allocOne(self: Self) Error!*V {
+        pub inline fn allocOne(self: Self) Error!*T {
             return self.vtable.allocOne(self.ptr);
         }
 
-        pub inline fn freeOne(self: Self, elem: *V) void {
+        pub inline fn freeOne(self: Self, elem: *T) void {
             self.vtable.freeOne(self.ptr, elem);
         }
 
