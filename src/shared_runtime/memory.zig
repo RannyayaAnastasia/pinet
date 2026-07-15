@@ -136,12 +136,13 @@ pub fn ObjPool(comptime T: type) type {
         free_count: usize,
         alignment: usize,
 
-        const ObjPoolError = error { IncorrectTypeSize };
+        const ObjPoolError = error{IncorrectTypeSize};
 
         pub fn init(gpa: std.mem.Allocator, capacity: usize) !Self {
             const ptr_align = @alignOf(?*anyopaque);
             if (@sizeOf(T) < @sizeOf(usize)) {
-            @compileError("User's type is too small, the allocator works only with types greater than or equal to " ++ std.fmt.comptimePrint("{}", .{@sizeOf(usize)}));            }
+                @compileError("User's type is too small, the allocator works only with types greater than or equal to " ++ std.fmt.comptimePrint("{}", .{@sizeOf(usize)}));
+            }
 
             const final_align = if (@alignOf(T) > ptr_align) @alignOf(T) else ptr_align;
             const items = try gpa.alignedAlloc(T, std.mem.Alignment.fromByteUnits(final_align), capacity);
@@ -173,7 +174,7 @@ pub fn ObjPool(comptime T: type) type {
 
         fn allocOne(ctx: *anyopaque) !*T {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            
+
             if (self.is_last_allocation) {
                 return error.OutOfMemory;
             }
@@ -224,7 +225,6 @@ pub fn ObjPool(comptime T: type) type {
         }
     };
 }
-
 
 test "ObjPool: basic allocation and free" {
     const gpa = std.testing.allocator;
@@ -278,7 +278,7 @@ test "ObjPool: basic allocation and free with data alignment smaller than usize 
     my_heap.printUsage();
 }
 
-test "ObjPool: Out of memory" {
+test "ObjPool: Out of memory " {
     const gpa = std.testing.allocator;
 
     var pool = try ObjPool(u64).init(gpa, 1);
@@ -395,6 +395,6 @@ test "ObjPool: LIFO allocation order after free" {
     my_heap.freeOne(c);
     my_heap.freeOne(first_reallocated);
     my_heap.freeOne(second_reallocated);
-    
+
     my_heap.printUsage();
 }
